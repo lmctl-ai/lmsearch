@@ -8,6 +8,10 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #ifndef LMSEARCH_VERSION
 #define LMSEARCH_VERSION "0.1.0"
@@ -114,6 +118,10 @@ int run_bytecode(lmsearch::Host& host, const std::string& dsl_path, bool dryrun,
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+#endif
     lmsearch::Host host;
     const std::vector<std::string> args(argv + 1, argv + argc);
 

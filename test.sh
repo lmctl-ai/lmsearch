@@ -17,11 +17,11 @@ echo "==> 1. Verifying SDK lock"
 python3 scripts/sync.py check
 
 echo "==> 2. Checking CLI discovery flags (--version, --dsl-schema, --schema, --dsl-signatures)"
-"$BIN" --version | grep -q "^lmsearch "
-cmp -s <("$BIN" --dsl-schema) schema/lmsearch.dsl.json
-cmp -s <("$BIN" --dsl-schema --json) schema/lmsearch.dsl.json
-cmp -s <("$BIN" --schema --json) cli.schema.latest.json
-diff -u <(lmscript --dsl-signatures schema/lmsearch.dsl.json) <("$BIN" --dsl-signatures)
+"$BIN" --version | tr -d '\r' | grep -q "^lmsearch "
+cmp -s <("$BIN" --dsl-schema | tr -d '\r') <(tr -d '\r' < schema/lmsearch.dsl.json)
+cmp -s <("$BIN" --dsl-schema --json | tr -d '\r') <(tr -d '\r' < schema/lmsearch.dsl.json)
+cmp -s <("$BIN" --schema --json | tr -d '\r') <(tr -d '\r' < cli.schema.latest.json)
+diff -u <(lmscript --dsl-signatures schema/lmsearch.dsl.json | tr -d '\r') <("$BIN" --dsl-signatures | tr -d '\r')
 
 echo "==> 3. Running test.lms and examples/*.lms via lmscript"
 lmscript --no-preflight test.lms > build/test_out.json
