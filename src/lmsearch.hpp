@@ -167,6 +167,7 @@ struct FaissIndex {
 
 struct Host {
     dslvm::Registry registry;
+    dslvm::stdlib::Collections cb_collections;
     std::string bytecode_bytes;
     std::string schema_bytes;
     bool in_callback = false;

@@ -294,7 +294,8 @@ static std::vector<double> apply_transform_rule_if_any(
     if (model.transform_rule.empty() || !model.host) return vec;
     std::unique_ptr<dslvm::Registry> cb_reg;
     dslvm::Registry* active_reg = nullptr;
-    model.host->bind_all(*(cb_reg = std::make_unique<dslvm::Registry>()), true);
+    cb_reg = std::make_unique<dslvm::Registry>(dslvm::StdMode::Disabled);
+    model.host->bind_all(*cb_reg, true);
     active_reg = cb_reg.get();
     dslvm::stdlib::FloatList local_vec{vec};
     dslvm::Value arg_vec = dslvm::Value::object("FloatList", &local_vec);

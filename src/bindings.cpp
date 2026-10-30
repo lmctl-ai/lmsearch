@@ -143,7 +143,7 @@ dslvm::Value Host::invoke_rule(
     if (out_cb_reg && *out_cb_reg) {
         cb_reg = *out_cb_reg;
     } else {
-        local_reg = std::make_unique<dslvm::Registry>();
+        local_reg = std::make_unique<dslvm::Registry>(dslvm::StdMode::Disabled);
         bind_all(*local_reg, true);
         cb_reg = local_reg.get();
         if (owned_cb_reg) *owned_cb_reg = std::move(local_reg);
@@ -183,6 +183,16 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     using dslvm::Args;
     using dslvm::Value;
 
+    dslvm::stdlib::Collections& colls = callback_mode ? cb_collections : reg.std_collections();
+    if (callback_mode && !reg.has_std()) {
+        dslvm::stdlib::register_string(reg);
+        dslvm::stdlib::register_encoding(reg);
+        dslvm::stdlib::register_math(reg);
+        dslvm::stdlib::register_collections(reg, colls);
+        dslvm::stdlib::register_file(reg, colls);
+        dslvm::stdlib::register_containers(reg, colls);
+        dslvm::stdlib::register_json(reg, colls);
+    }
     dslvm::stdlib::register_testing(reg);
 
     auto guard_not_callback = [callback_mode](const char* op) {
@@ -272,7 +282,7 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         return Value::object("FaissIndex", FaissIndex::load_from_file(this, a[0].s));
     });
 
-    reg.function("synthetic_vector", {"int", "int", "int", "float"}, "FloatList", [&reg](Args& a) {
+    reg.function("synthetic_vector", {"int", "int", "int", "float"}, "FloatList", [&colls](Args& a) {
         int64_t dim = a[0].i;
         int64_t cluster = a[1].i;
         int64_t item = a[2].i;
@@ -284,7 +294,7 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
             double delta = std::cos(static_cast<double>((item + 1) * 43 + (j + 1) * 13)) * noise;
             v[static_cast<size_t>(j)] = base + delta;
         }
-        return Value::object("FloatList", reg.std_collections().make_float_list(std::move(v)));
+        return Value::object("FloatList", colls.make_float_list(std::move(v)));
     });
 
     reg.function("l2_distance", {"FloatList", "FloatList"}, "float", [](Args& a) {
@@ -323,7 +333,7 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         return Value::real(denom > 1e-24 ? (dot / denom) : 0.0);
     });
 
-    reg.function("l2_normalize", {"FloatList"}, "FloatList", [&reg](Args& a) {
+    reg.function("l2_normalize", {"FloatList"}, "FloatList", [&colls](Args& a) {
         const auto& x = static_cast<dslvm::stdlib::FloatList*>(a[0].obj)->items;
         double s = 0.0;
         for (double v : x) s += v * v;
@@ -332,7 +342,7 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
             double inv = 1.0 / std::sqrt(s);
             for (double& v : out) v *= inv;
         }
-        return Value::object("FloatList", reg.std_collections().make_float_list(std::move(out)));
+        return Value::object("FloatList", colls.make_float_list(std::move(out)));
     });
 
     reg.function("assert_true", {"bool", "string"}, "void", [](Args& a) {
@@ -389,16 +399,16 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         model_ref(self).save_to_file(a[0].s);
         return Value::object("OnnxModel", self);
     });
-    reg.method("OnnxModel", "embed_text", {"string"}, "FloatList", [&reg](void* self, Args& a) {
-        return Value::object("FloatList", reg.std_collections().make_float_list(model_ref(self).run_text(a[0].s)));
+    reg.method("OnnxModel", "embed_text", {"string"}, "FloatList", [&colls](void* self, Args& a) {
+        return Value::object("FloatList", colls.make_float_list(model_ref(self).run_text(a[0].s)));
     });
-    reg.method("OnnxModel", "embed_tokens", {"IntList"}, "FloatList", [&reg](void* self, Args& a) {
+    reg.method("OnnxModel", "embed_tokens", {"IntList"}, "FloatList", [&colls](void* self, Args& a) {
         const auto& toks = static_cast<dslvm::stdlib::IntList*>(a[0].obj)->items;
-        return Value::object("FloatList", reg.std_collections().make_float_list(model_ref(self).run_tokens(toks)));
+        return Value::object("FloatList", colls.make_float_list(model_ref(self).run_tokens(toks)));
     });
-    reg.method("OnnxModel", "embed_vector", {"FloatList"}, "FloatList", [&reg](void* self, Args& a) {
+    reg.method("OnnxModel", "embed_vector", {"FloatList"}, "FloatList", [&colls](void* self, Args& a) {
         const auto& vec = static_cast<dslvm::stdlib::FloatList*>(a[0].obj)->items;
-        return Value::object("FloatList", reg.std_collections().make_float_list(model_ref(self).run_vector(vec)));
+        return Value::object("FloatList", colls.make_float_list(model_ref(self).run_vector(vec)));
     });
     reg.method("OnnxModel", "emit", {"string"}, "OnnxModel", [this](void* self, Args& a) {
         auto& m = model_ref(self);
@@ -454,8 +464,8 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         doc_ref(self).vec = static_cast<dslvm::stdlib::FloatList*>(a[0].obj)->items;
         return Value::object("Document", self);
     });
-    reg.method("Document", "values", {}, "FloatList", [&reg](void* self, Args&) {
-        return Value::object("FloatList", reg.std_collections().make_float_list(doc_ref(self).vec));
+    reg.method("Document", "values", {}, "FloatList", [&colls](void* self, Args&) {
+        return Value::object("FloatList", colls.make_float_list(doc_ref(self).vec));
     });
 
     // AutoTuner methods
@@ -499,8 +509,8 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         AutoPlan p = tuner_ref(self).build_plan();
         return Value::object("AutoPlan", alloc_plan(p));
     });
-    reg.method("AutoTuner", "candidate_keys", {}, "StrList", [&reg](void* self, Args&) {
-        return Value::object("StrList", reg.std_collections().make_str_list(tuner_ref(self).compute_candidates()));
+    reg.method("AutoTuner", "candidate_keys", {}, "StrList", [&colls](void* self, Args&) {
+        return Value::object("StrList", colls.make_str_list(tuner_ref(self).compute_candidates()));
     });
 
     // AutoPlan methods
@@ -664,8 +674,8 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     reg.method("FaissIndex", "remove_id", {"int"}, "int", [](void* self, Args& a) {
         return Value::integer(index_ref(self).remove_by_id(a[0].i));
     });
-    reg.method("FaissIndex", "reconstruct", {"int"}, "FloatList", [&reg](void* self, Args& a) {
-        return Value::object("FloatList", reg.std_collections().make_float_list(index_ref(self).reconstruct_vec(a[0].i)));
+    reg.method("FaissIndex", "reconstruct", {"int"}, "FloatList", [&colls](void* self, Args& a) {
+        return Value::object("FloatList", colls.make_float_list(index_ref(self).reconstruct_vec(a[0].i)));
     });
     reg.method("FaissIndex", "search", {"FloatList", "int"}, "SearchResults", [](void* self, Args& a) {
         const auto& q = static_cast<dslvm::stdlib::FloatList*>(a[0].obj)->items;
@@ -710,20 +720,20 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     reg.method("SearchResults", "params", {}, "string", [](void* self, Args&) {
         return Value::string(results_ref(self).params);
     });
-    reg.method("SearchResults", "ids", {}, "IntList", [&reg](void* self, Args&) {
+    reg.method("SearchResults", "ids", {}, "IntList", [&colls](void* self, Args&) {
         std::vector<int64_t> ids;
         for (const auto* h : results_ref(self).hits) ids.push_back(h->id);
-        return Value::object("IntList", reg.std_collections().make_int_list(std::move(ids)));
+        return Value::object("IntList", colls.make_int_list(std::move(ids)));
     });
-    reg.method("SearchResults", "distances", {}, "FloatList", [&reg](void* self, Args&) {
+    reg.method("SearchResults", "distances", {}, "FloatList", [&colls](void* self, Args&) {
         std::vector<double> dists;
         for (const auto* h : results_ref(self).hits) dists.push_back(h->distance);
-        return Value::object("FloatList", reg.std_collections().make_float_list(std::move(dists)));
+        return Value::object("FloatList", colls.make_float_list(std::move(dists)));
     });
-    reg.method("SearchResults", "scores", {}, "FloatList", [&reg](void* self, Args&) {
+    reg.method("SearchResults", "scores", {}, "FloatList", [&colls](void* self, Args&) {
         std::vector<double> sc;
         for (const auto* h : results_ref(self).hits) sc.push_back(h->score);
-        return Value::object("FloatList", reg.std_collections().make_float_list(std::move(sc)));
+        return Value::object("FloatList", colls.make_float_list(std::move(sc)));
     });
     reg.method("SearchResults", "emit", {"string"}, "SearchResults", [this](void* self, Args& a) {
         auto& r = results_ref(self);
