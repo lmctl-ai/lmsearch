@@ -1,0 +1,13 @@
+build/
+dist/
+third_party/
+.venv/
+*.dslb
+*.onnx
+*.faiss
+lmsearch.lmc
+p1.txt
+p1.out
+__pycache__/
+*.pyc
+.DS_Store

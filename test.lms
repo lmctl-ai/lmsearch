@@ -1,0 +1,120 @@
+# Comprehensive integration test for lmsearch (ONNX + FAISS + AutoFaiss + lmcode SAM rules)
+
+program = _lmcode_ schema="schema/lmsearch.dsl.json";
+
+@embed
+fn scale_and_norm(vec: FloatList, dim: int) -> FloatList implements EmbeddingTransform {
+    let out = float_list();
+    let i = 0;
+    while (i < dim) {
+        if (i == 0) {
+            out.add(vec.at(i) * 1.25);
+        } else {
+            out.add(vec.at(i));
+        }
+        i = i + 1;
+    }
+    return l2_normalize(out);
+}
+
+@policy
+fn require_compression(plan: AutoPlan) -> string implements IndexPolicy {
+    let chosen = plan.index_key();
+    if (plan.compression_ratio() < 1.2) {
+        chosen = "IVF64,PQ4x8";
+    }
+    return chosen;
+}
+
+@filter
+fn active_docs_only(id: int, d: Document) -> bool implements VectorFilter {
+    let keep = false;
+    if (id > 0 && d.has("status") && d.get("status") == "active") {
+        keep = true;
+    }
+    return keep;
+}
+
+@rerank
+fn priority_reranker(hit: SearchHit, query: string) -> float implements Reranker {
+    let s = hit.score();
+    let d = hit.document();
+    if (d.has("priority") && str_contains(query, "faiss")) {
+        s = s + float(d.get_number("priority")) * 0.05;
+    }
+    return s;
+}
+
+@audit
+fn audit_metrics(m: IndexMetrics) -> void implements AuditRule {
+    assert_true(m.recall_1_at_k() >= 0.5, "audit: recall_1_at_k must be >= 0.5");
+    assert_true(m.size_bytes() > 0, "audit: size_bytes must be positive");
+    report("audited_index_params", m.param_string());
+}
+
+let model = onnx_embedder(2048, 12, 42)
+    .pooling(Pooling.MEAN)
+    .normalize(true)
+    .transform_rule("scale_and_norm")
+    .emit("onnx_encoder");
+
+assert_true(model.check(), "ONNX model must pass check()");
+assert_true(model.opset() >= 18, "ONNX opset must be >= 18");
+assert_true(model.output_dim() == 12, "ONNX output_dim must be 12");
+assert_true(model.node_count() >= 5, "ONNX graph must have >= 5 nodes");
+
+let toks = int_list().add(11).add(42).add(77);
+let tok_emb = model.embed_tokens(toks);
+assert_true(tok_emb.len() == 12, "token embedding length must match output_dim");
+
+let tuner = autotuner(25000, 12)
+    .metric(Metric.COSINE)
+    .max_memory("16MB")
+    .max_query_ms(4.0)
+    .min_neighbors(8)
+    .policy_rule("require_compression");
+
+let cands = tuner.candidate_keys();
+assert_true(cands.len() >= 2, "AutoTuner must produce candidate index keys");
+
+let best_plan = tuner.plan().emit("selected_plan");
+assert_true(best_plan.compression_ratio() >= 1.2, "selected plan must satisfy IndexPolicy rule");
+assert_true(best_plan.nb_clusters() >= 1, "selected plan must report cluster count");
+
+let idx = hnsw_index(12, 16, Metric.COSINE)
+    .embedder(model)
+    .ef_construction(40)
+    .ef_search(32)
+    .filter_rule("active_docs_only")
+    .rerank_rule("priority_reranker");
+
+idx.add_doc(document(10, "faiss vector index search").field("status", "active").number("priority", 1));
+idx.add_doc(document(20, "faiss autofaiss quantization search").field("status", "active").number("priority", 10));
+idx.add_doc(document(30, "archived faiss vector index").field("status", "archived").number("priority", 99));
+
+assert_true(idx.ntotal() == 3, "index must hold 3 vectors");
+
+let results = idx.search_text("faiss vector index search", 3).emit("search_results");
+assert_true(results.len() == 2, "VectorFilter must filter out archived doc 30");
+assert_true(results.at(0).id() == 20, "Reranker must promote high-priority doc 20 to rank 0");
+
+let metrics = idx.evaluate(2).emit("index_metrics");
+assert_true(metrics.recall_k_at_k() >= 0.5, "recall_k_at_k must be >= 0.5");
+
+let v1 = synthetic_vector(12, 0, 1, 0.01);
+let v2 = synthetic_vector(12, 0, 1, 0.01);
+assert_true(l2_distance(v1, v2) < 0.0001, "identical synthetic vectors must have zero L2 distance");
+assert_true(cosine_similarity(v1, v2) > 0.999, "identical synthetic vectors must have cosine similarity ~1.0");
+
+report("status", "all_assertions_passed");
+end _lmcode_
+
+mkdir("build");
+savedsl(program, "build/test.dslb");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = system ${[bin]} --dsl build/test.dslb;
+if (r.code != 0) {
+    print(r.stderr);
+}
+assert(r.code == 0, "test.lms failed: " + r.stdout);
+print(r.stdout);

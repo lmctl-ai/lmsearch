@@ -1,0 +1,95 @@
+# SAM rule extensions: EmbeddingTransform, IndexPolicy, VectorFilter, Reranker, and AuditRule
+
+program = _lmcode_ schema="../schema/lmsearch.dsl.json";
+
+@embed
+fn emphasize_first_dims(vec: FloatList, dim: int) -> FloatList implements EmbeddingTransform {
+    let out = float_list();
+    let i = 0;
+    while (i < dim) {
+        let v = vec.at(i);
+        if (i < 4) {
+            out.add(v * 1.5);
+        } else {
+            out.add(v);
+        }
+        i = i + 1;
+    }
+    return l2_normalize(out);
+}
+
+@policy
+fn prefer_compact_index(plan: AutoPlan) -> string implements IndexPolicy {
+    let chosen = plan.index_key();
+    if (plan.compression_ratio() < 1.5) {
+        chosen = "IVF64,PQ4x8";
+    }
+    return chosen;
+}
+
+@filter
+fn only_recent_vector_docs(id: int, d: Document) -> bool implements VectorFilter {
+    let keep = false;
+    if (d.has("year") && d.get_number("year") >= 2023 && id != 999) {
+        keep = true;
+    }
+    return keep;
+}
+
+@rerank
+fn boost_autofaiss_topic(hit: SearchHit, query: string) -> float implements Reranker {
+    let base = hit.score();
+    let d = hit.document();
+    if (d.has("tag") && d.get("tag") == "featured" && str_contains(query, "faiss")) {
+        base = base + 1.0;
+    }
+    return base;
+}
+
+@audit
+fn verify_quality_gate(m: IndexMetrics) -> void implements AuditRule {
+    assert_true(m.recall_1_at_k() >= 0.5, "audit rule: recall_1_at_k below quality gate");
+    report("audited_params", m.param_string());
+}
+
+let model = onnx_embedder(2048, 8, 42)
+    .pooling(Pooling.MEAN)
+    .normalize(true)
+    .transform_rule("emphasize_first_dims");
+
+let plan = autotuner(20000, 8)
+    .metric(Metric.COSINE)
+    .max_memory("8MB")
+    .policy_rule("prefer_compact_index")
+    .plan()
+    .emit("policy_selected_plan");
+
+assert_true(plan.compression_ratio() >= 1.5, "IndexPolicy SAM rule must enforce compression >= 1.5");
+
+let idx = flat_index(8, Metric.COSINE)
+    .embedder(model)
+    .filter_rule("only_recent_vector_docs")
+    .rerank_rule("boost_autofaiss_topic");
+
+idx.add_doc(document(1, "faiss hnsw graph index").field("tag", "standard").number("year", 2024));
+idx.add_doc(document(2, "faiss autofaiss quantization pipeline").field("tag", "featured").number("year", 2025));
+idx.add_doc(document(3, "legacy vector index").field("tag", "featured").number("year", 2019));
+idx.add_doc(document(999, "blocked document").field("tag", "featured").number("year", 2025));
+
+let res = idx.search_text("faiss index", 5).emit("sam_filtered_reranked");
+assert_true(res.len() == 2, "VectorFilter must exclude 2019 doc and id 999");
+assert_true(res.at(0).id() == 2, "Reranker must boost featured doc 2 to rank 0");
+
+let eval_metrics = idx.evaluate(2).emit("sam_eval");
+report("sam_top_id", str(res.at(0).id()));
+end _lmcode_
+
+mkdir("build");
+savedsl(program, "build/sam_rules.dslb");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = system ${[bin]} --dsl build/sam_rules.dslb;
+if (r.code != 0) {
+    print(r.stderr);
+}
+assert(r.code == 0, "sam_rules failed: " + r.stdout);
+print(r.stdout);

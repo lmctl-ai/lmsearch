@@ -1,0 +1,53 @@
+# AutoFaiss index advisor, memory budgeting, parameter autotuning, and recall evaluation
+
+program = _lmcode_ schema="../schema/lmsearch.dsl.json";
+let dim = 16;
+let tuner = autotuner(50000, dim)
+    .metric(Metric.L2)
+    .max_memory("32MB")
+    .max_query_ms(5.0)
+    .min_neighbors(10);
+
+let candidates = tuner.candidate_keys();
+assert_true(candidates.len() >= 3, "autotuner must propose multiple candidate FAISS index keys");
+
+let plan = tuner.plan().emit("autofaiss_plan");
+assert_true(plan.dim() == dim, "plan dimension must match");
+assert_true(plan.estimated_bytes() > 0, "plan must estimate index memory footprint");
+assert_true(plan.estimated_bytes() <= plan.max_memory_bytes(), "plan must respect memory budget");
+
+let small_plan = autotuner(64, dim).metric(Metric.L2).max_memory("4MB").force_pq(4).plan().emit("compact_pq_plan");
+let idx = auto_index(small_plan);
+
+let cluster = 0;
+while (cluster < 4) {
+    let item = 0;
+    while (item < 16) {
+        let id = cluster * 100 + item;
+        let v = synthetic_vector(dim, cluster, item, 0.03);
+        idx.add(id, v);
+        item = item + 1;
+    }
+    cluster = cluster + 1;
+}
+
+idx.train();
+let tuned_params = idx.autotune(5.0, 5);
+let metrics = idx.evaluate(5).emit("pq_evaluation");
+
+assert_true(metrics.recall_k_at_k() >= 0.5, "recall@5 should be at least 0.5 on clustered vectors");
+assert_true(metrics.compression_ratio() >= 1.0, "compression ratio must be >= 1.0");
+
+report("selected_key", plan.index_key());
+report("tuned_params", tuned_params);
+end _lmcode_
+
+mkdir("build");
+savedsl(program, "build/autofaiss_tuning.dslb");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = system ${[bin]} --dsl build/autofaiss_tuning.dslb;
+if (r.code != 0) {
+    print(r.stderr);
+}
+assert(r.code == 0, "autofaiss_tuning failed: " + r.stdout);
+print(r.stdout);

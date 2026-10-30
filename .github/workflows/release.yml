@@ -1,0 +1,94 @@
+name: Build, test and publish
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  LMSEARCH_VERSION: 0.1.${{ github.run_number }}
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, label: linux-x64, ext: ''}
+          - {os: ubuntu-24.04-arm, label: linux-arm64, ext: ''}
+          - {os: macos-15, label: macos-arm64, ext: ''}
+          - {os: macos-15-intel, label: macos-x64, ext: ''}
+          - {os: windows-2022, label: windows-x64, ext: '.exe'}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Compiler and native toolchain
+        run: |
+          npm install -g @lmctl-ai/lmctl
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            if ! command -v g++ >/dev/null || ! command -v make >/dev/null; then choco install -y mingw make; fi
+            mkdir -p .ci-bin
+            printf '#!/usr/bin/env bash\nexec python "$@"\n' > .ci-bin/python3
+            chmod +x .ci-bin/python3
+            echo "$PWD/.ci-bin" >> "$GITHUB_PATH"
+          fi
+      - name: Build and test lmsearch across ONNX, FAISS, AutoFaiss, and SAM rules
+        run: |
+          export VERSION="$LMSEARCH_VERSION"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            export CXX=g++
+            export CXXFLAGS='-std=c++17 -O2 -Wall -Wextra -Werror -pedantic -static'
+          elif [[ "$RUNNER_OS" == Linux ]]; then
+            export CXXFLAGS='-std=c++17 -O2 -Wall -Wextra -Werror -pedantic -static-libstdc++ -static-libgcc'
+          fi
+          make VERSION="$LMSEARCH_VERSION" BIN="build/lmsearch${{ matrix.ext }}"
+          BIN="./build/lmsearch${{ matrix.ext }}" bash ./test.sh
+          [[ "$("./build/lmsearch${{ matrix.ext }}" --version | tr -d '\r')" == "lmsearch $LMSEARCH_VERSION" ]]
+          mkdir -p dist
+          cp "build/lmsearch${{ matrix.ext }}" "dist/lmsearch-${{ matrix.label }}${{ matrix.ext }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: binary-${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: dist
+      - name: Publish tested binaries and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v$LMSEARCH_VERSION"
+          cp LICENSE THIRD_PARTY_NOTICES.md dist/
+          (cd dist && sha256sum * > SHA256SUMS)
+          if gh release view "$tag" --json targetCommitish --jq .targetCommitish > existing-target.txt 2>/dev/null; then
+            [[ "$(cat existing-target.txt)" == "$GITHUB_SHA" ]]
+            echo "Release $tag already published for this commit."
+          else
+            gh release create "$tag" dist/* --target "$GITHUB_SHA" --latest --title "$tag" --notes 'Automatically built and tested on Linux x64/arm64, macOS x64/arm64 and Windows x64. Includes ONNX, FAISS, AutoFaiss and lmcode SAM extension tests.'
+          fi

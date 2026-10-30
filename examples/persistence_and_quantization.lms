@@ -1,0 +1,49 @@
+# ONNX & FAISS persistence, IVF-PQ quantization, reconstruction, and range search
+
+program = _lmcode_ schema="../schema/lmsearch.dsl.json";
+let dim = 8;
+let mlp = onnx_mlp_embedder(dim, 16, dim, 42).normalize(true);
+mlp.save("build/tmp_mlp.onnx");
+
+let loaded_mlp = onnx_load("build/tmp_mlp.onnx").emit("loaded_onnx");
+assert_true(loaded_mlp.check(), "loaded ONNX model must be valid");
+assert_true(loaded_mlp.output_dim() == dim, "loaded ONNX output_dim must match");
+
+let pq = ivf_pq_index(dim, 2, 2, 4, Metric.L2);
+let c = 0;
+while (c < 2) {
+    let i = 0;
+    while (i < 8) {
+        let id = c * 10 + i + 1;
+        let raw = synthetic_vector(dim, c, i, 0.02);
+        let emb = loaded_mlp.embed_vector(raw);
+        pq.add(id, emb);
+        i = i + 1;
+    }
+    c = c + 1;
+}
+pq.train().nprobe(2);
+pq.save("build/tmp_pq.faiss");
+
+let restored = load_index("build/tmp_pq.faiss");
+assert_true(restored.ntotal() == 16, "restored index must have 16 vectors");
+assert_true(restored.is_trained(), "restored index must be trained");
+
+let rec = restored.reconstruct(1);
+assert_true(rec.len() == dim, "reconstructed vector must have dim elements");
+
+let range_hits = restored.range_search(rec, 0.5).emit("range_results");
+assert_true(range_hits.len() >= 1, "range search around reconstructed vector must find at least itself");
+
+report("restored_ntotal", str(restored.ntotal()));
+end _lmcode_
+
+mkdir("build");
+savedsl(program, "build/persistence_and_quantization.dslb");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = system ${[bin]} --dsl build/persistence_and_quantization.dslb;
+if (r.code != 0) {
+    print(r.stderr);
+}
+assert(r.code == 0, "persistence_and_quantization failed: " + r.stdout);
+print(r.stdout);

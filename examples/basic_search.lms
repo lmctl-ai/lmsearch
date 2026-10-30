@@ -1,0 +1,42 @@
+# Basic semantic search with ONNX text embedder and FAISS Flat / HNSW indexes
+
+program = _lmcode_ schema="../schema/lmsearch.dsl.json";
+let model = onnx_embedder(4096, 16, 42)
+    .pooling(Pooling.MEAN)
+    .normalize(true)
+    .emit("text_embedder");
+
+assert_true(model.check(), "ONNX model must pass IR and opset validation");
+assert_true(model.output_dim() == 16, "output_dim must be 16");
+assert_true(model.node_count() >= 5, "ONNX graph must contain multi-layer operators");
+
+let idx = hnsw_index(16, 16, Metric.COSINE).embedder(model).ef_search(64);
+
+let d1 = document(101, "distributed vector similarity search with faiss").field("topic", "vector").number("year", 2024);
+let d2 = document(102, "onnx neural network graph serialization and shape inference").field("topic", "onnx").number("year", 2023);
+let d3 = document(103, "autofaiss automatic quantization and hyperparameter tuning").field("topic", "autofaiss").number("year", 2025);
+let d4 = document(104, "relational btree transaction log recovery").field("topic", "sql").number("year", 2020);
+
+idx.add_doc(d1).add_doc(d2).add_doc(d3).add_doc(d4);
+assert_true(idx.ntotal() == 4, "index should contain 4 documents");
+
+let hits = idx.search_text("distributed vector similarity search with faiss", 3).emit("semantic_query");
+assert_true(hits.len() == 3, "top-3 search must return 3 hits");
+let best = hits.at(0);
+assert_true(best.id() == 101, "exact text query should rank doc 101 first");
+assert_true(best.document().get("topic") == "vector", "top hit metadata topic must match");
+
+report("top_hit_id", str(best.id()));
+report("top_hit_topic", best.document().get("topic"));
+report("onnx_summary", model.summary());
+end _lmcode_
+
+mkdir("build");
+savedsl(program, "build/basic_search.dslb");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = system ${[bin]} --dsl build/basic_search.dslb;
+if (r.code != 0) {
+    print(r.stderr);
+}
+assert(r.code == 0, "basic_search failed: " + r.stdout);
+print(r.stdout);
