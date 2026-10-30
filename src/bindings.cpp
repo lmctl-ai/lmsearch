@@ -225,6 +225,33 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         return Value::object("OnnxModel", m);
     });
 
+    reg.function("onnx_pretrained", {"string"}, "OnnxModel", [this, guard_not_callback](Args& a) {
+        guard_not_callback("onnx_pretrained");
+        OnnxModel loaded = OnnxModel::load_or_download_cached(this, a[0].s, 0, "");
+        OnnxModel* m = alloc_model();
+        *m = std::move(loaded);
+        m->host = this;
+        return Value::object("OnnxModel", m);
+    });
+
+    reg.function("onnx_pretrained", {"string", "int"}, "OnnxModel", [this, guard_not_callback](Args& a) {
+        guard_not_callback("onnx_pretrained");
+        OnnxModel loaded = OnnxModel::load_or_download_cached(this, a[0].s, a[1].i, "");
+        OnnxModel* m = alloc_model();
+        *m = std::move(loaded);
+        m->host = this;
+        return Value::object("OnnxModel", m);
+    });
+
+    reg.function("onnx_pretrained", {"string", "string"}, "OnnxModel", [this, guard_not_callback](Args& a) {
+        guard_not_callback("onnx_pretrained");
+        OnnxModel loaded = OnnxModel::load_or_download_cached(this, a[0].s, 0, a[1].s);
+        OnnxModel* m = alloc_model();
+        *m = std::move(loaded);
+        m->host = this;
+        return Value::object("OnnxModel", m);
+    });
+
     reg.function("document", {"int"}, "Document", [this](Args& a) {
         return Value::object("Document", alloc_doc(a[0].i, ""));
     });
@@ -394,6 +421,15 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     });
     reg.method("OnnxModel", "summary", {}, "string", [](void* self, Args&) {
         return Value::string(model_ref(self).summary_text());
+    });
+    reg.method("OnnxModel", "model_id", {}, "string", [](void* self, Args&) {
+        return Value::string(model_ref(self).model_id);
+    });
+    reg.method("OnnxModel", "cache_path", {}, "string", [](void* self, Args&) {
+        return Value::string(model_ref(self).cache_path);
+    });
+    reg.method("OnnxModel", "cached", {}, "bool", [](void* self, Args&) {
+        return Value::boolean(model_ref(self).from_cache);
     });
     reg.method("OnnxModel", "save", {"string"}, "OnnxModel", [](void* self, Args& a) {
         model_ref(self).save_to_file(a[0].s);
@@ -671,6 +707,19 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         idx.add_vector(doc->id, doc->vec, doc);
         return Value::object("FaissIndex", self);
     });
+    reg.method("FaissIndex", "add_file", {"string"}, "int", [](void* self, Args& a) {
+        return Value::integer(index_ref(self).add_file_path(a[0].s));
+    });
+    reg.method("FaissIndex", "add_dir", {"string"}, "int", [](void* self, Args& a) {
+        return Value::integer(index_ref(self).add_directory_path(a[0].s, ""));
+    });
+    reg.method("FaissIndex", "add_dir", {"string", "string"}, "int", [](void* self, Args& a) {
+        return Value::integer(index_ref(self).add_directory_path(a[0].s, a[1].s));
+    });
+    reg.method("FaissIndex", "add_paths", {"StrList"}, "int", [](void* self, Args& a) {
+        const auto& paths = static_cast<dslvm::stdlib::StrList*>(a[0].obj)->items;
+        return Value::integer(index_ref(self).add_path_list(paths, ""));
+    });
     reg.method("FaissIndex", "remove_id", {"int"}, "int", [](void* self, Args& a) {
         return Value::integer(index_ref(self).remove_by_id(a[0].i));
     });
@@ -772,6 +821,12 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     reg.method("SearchHit", "text", {}, "string", [](void* self, Args&) {
         auto& h = hit_ref(self);
         return Value::string(h.doc ? h.doc->text : "");
+    });
+    reg.method("SearchHit", "path", {}, "string", [](void* self, Args&) {
+        auto& h = hit_ref(self);
+        if (!h.doc) return Value::string("");
+        auto it = h.doc->fields.find("path");
+        return Value::string(it != h.doc->fields.end() ? it->second : "");
     });
     reg.method("SearchHit", "document", {}, "Document", [](void* self, Args&) {
         auto& h = hit_ref(self);

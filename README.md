@@ -45,9 +45,25 @@ make with-upstream   # Produces build/lmsearch-upstream
 
 ```bash
 lmscript examples/basic_search.lms
+lmscript examples/file_and_dir_search.lms
 lmscript examples/autofaiss_tuning.lms
 lmscript examples/sam_rules.lms
 lmscript examples/persistence_and_quantization.lms
+```
+
+### Direct CLI: Index Files/Directories & Search Text
+
+```bash
+# 1. Index a list of files and directories (downloads & caches ONNX model weights in ~/.cache/lmsearch/models)
+./build/lmsearch index README.md durable-memory examples \
+    --output build/docs.faiss \
+    --model all-MiniLM-L6-v2
+
+# 2. Search text against the saved index
+./build/lmsearch search \
+    --index build/docs.faiss \
+    --query "AutoFaiss memory budget and ONNX embedding" \
+    -k 3
 ```
 
 ### CLI Discovery Flags

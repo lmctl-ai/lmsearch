@@ -57,6 +57,15 @@ if [ "$RO_RC" -eq 0 ]; then
 fi
 echo "$RO_OUT" | grep -q '"POLICY_READONLY"'
 
+echo "==> 6. Verifying CLI 'index' (files + directories + model weight cache) and 'search' (text query)"
+"$BIN" index README.md durable-memory --output build/cli_files.faiss --model all-MiniLM-L6-v2 --cache-dir build/cli_model_cache > build/cli_index_out.json
+grep -q '"ok": true' build/cli_index_out.json
+grep -q '"cached": true' build/cli_index_out.json
+"$BIN" search --index build/cli_files.faiss --query "ONNX and FAISS vector similarity search" -k 2 > build/cli_search_out.json
+grep -q '"ok": true' build/cli_search_out.json
+grep -q '"operation": "search"' build/cli_search_out.json
+grep -q '"path":' build/cli_search_out.json
+
 if [ -x "./build/lmsearch-upstream" ]; then
     echo "==> 6. Verifying upstream FAISS + ONNX static-linked binary (build/lmsearch-upstream)"
     ./build/lmsearch-upstream --version | grep -q "^lmsearch "

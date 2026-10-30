@@ -1,0 +1,50 @@
+# Index files and directories with downloaded/cached ONNX model weights, then search text
+
+program = _lmcode_ schema="../schema/lmsearch.dsl.json";
+
+# 1. Download and cache ONNX model weights (subsequent calls load directly from cache)
+let model = onnx_pretrained("all-MiniLM-L6-v2", "build/model_cache")
+    .pooling(Pooling.MEAN)
+    .normalize(true)
+    .emit("cached_pretrained_model");
+
+assert_true(model.cached(), "model weights must be cached on disk");
+assert_true(str_contains(model.cache_path(), "model.onnx"), "cache_path must point to cached model.onnx");
+assert_true(file_exists(model.cache_path()), "cached model.onnx weight file must exist on disk");
+
+# 2. Index a list of files and directories into a FAISS index
+let idx = hnsw_index(model.output_dim(), 16, Metric.COSINE).embedder(model);
+
+let n_single = idx.add_file("README.md");
+assert_true(n_single == 1, "add_file must index README.md");
+
+let n_dir = idx.add_dir("durable-memory", ".md");
+assert_true(n_dir >= 1, "add_dir must index markdown files in durable-memory/");
+
+let paths = str_list().add("THIRD_PARTY_NOTICES.md").add("examples");
+let n_paths = idx.add_paths(paths);
+assert_true(n_paths >= 4, "add_paths must index both individual files and directories");
+
+idx.save("build/files_index.faiss");
+
+# 3. Reload the saved index (automatically restores its sidecar ONNX model) and search text
+let loaded = load_index("build/files_index.faiss");
+let hits = loaded.search_text("ONNX neural network graph and FAISS vector similarity search", 3).emit("file_search_hits");
+
+assert_true(hits.len() == 3, "search_text must return top-3 matching files");
+assert_true(str_len(hits.at(0).path()) > 0, "top hit must include indexed file path");
+
+report("cached_model_path", model.cache_path());
+report("indexed_files_total", str(loaded.ntotal()));
+report("top_hit_path", hits.at(0).path());
+end _lmcode_
+
+mkdir("build");
+savedsl(program, "build/file_and_dir_search.dslb");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = system ${[bin]} --dsl build/file_and_dir_search.dslb;
+if (r.code != 0) {
+    print(r.stderr);
+}
+assert(r.code == 0, "file_and_dir_search failed: " + r.stdout);
+print(r.stdout);

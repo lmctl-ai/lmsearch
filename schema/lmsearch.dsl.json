@@ -722,6 +722,28 @@
         ],
         "returns": "string"
       }
+    ],
+    "onnx_pretrained": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "OnnxModel"
+      },
+      {
+        "params": [
+          "string",
+          "int"
+        ],
+        "returns": "OnnxModel"
+      },
+      {
+        "params": [
+          "string",
+          "string"
+        ],
+        "returns": "OnnxModel"
+      }
     ]
   },
   "types": {
@@ -839,6 +861,24 @@
               "string"
             ],
             "returns": "self"
+          }
+        ],
+        "model_id": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "cache_path": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "cached": [
+          {
+            "params": [],
+            "returns": "bool"
           }
         ]
       }
@@ -1298,6 +1338,37 @@
             ],
             "returns": "self"
           }
+        ],
+        "add_file": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "int"
+          }
+        ],
+        "add_dir": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "int"
+          },
+          {
+            "params": [
+              "string",
+              "string"
+            ],
+            "returns": "int"
+          }
+        ],
+        "add_paths": [
+          {
+            "params": [
+              "StrList"
+            ],
+            "returns": "int"
+          }
         ]
       }
     },
@@ -1393,6 +1464,12 @@
           {
             "params": [],
             "returns": "Document"
+          }
+        ],
+        "path": [
+          {
+            "params": [],
+            "returns": "string"
           }
         ]
       }

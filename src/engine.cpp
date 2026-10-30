@@ -430,6 +430,104 @@ OnnxModel OnnxModel::load_from_file(Host* host, const std::string& path) {
     return m;
 }
 
+static std::string resolve_model_cache_root(const std::string& custom_cache_dir) {
+    if (!custom_cache_dir.empty()) return custom_cache_dir;
+    if (const char* env_dir = std::getenv("LMSEARCH_CACHE_DIR")) {
+        if (*env_dir) return std::string(env_dir);
+    }
+#ifdef _WIN32
+    if (const char* local_app = std::getenv("LOCALAPPDATA")) {
+        if (*local_app) return std::string(local_app) + "/lmsearch/models";
+    }
+    if (const char* up = std::getenv("USERPROFILE")) {
+        if (*up) return std::string(up) + "/.cache/lmsearch/models";
+    }
+#else
+    if (const char* home = std::getenv("HOME")) {
+        if (*home) return std::string(home) + "/.cache/lmsearch/models";
+    }
+#endif
+    return "build/.cache/lmsearch/models";
+}
+
+static std::string sanitize_model_slug(const std::string& id) {
+    std::string out;
+    for (unsigned char c : id) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.') {
+            out.push_back(static_cast<char>(c));
+        } else {
+            out.push_back('_');
+        }
+    }
+    return out.empty() ? "default_model" : out;
+}
+
+OnnxModel OnnxModel::load_or_download_cached(
+    Host* host,
+    const std::string& model_id_or_url,
+    int64_t requested_dim,
+    const std::string& custom_cache_dir) {
+    if (model_id_or_url.empty()) {
+        throw dslvm::Error("onnx_pretrained requires a non-empty model name or URL");
+    }
+
+    int64_t dim = requested_dim > 0 ? requested_dim : 16;
+    if (requested_dim <= 0) {
+        if (model_id_or_url.find("384") != std::string::npos) dim = 24;
+        else if (model_id_or_url.find("large") != std::string::npos) dim = 32;
+        else if (model_id_or_url.find("small") != std::string::npos || model_id_or_url.find("MiniLM") != std::string::npos) dim = 16;
+    }
+
+    std::string cache_root = resolve_model_cache_root(custom_cache_dir);
+    std::string slug = sanitize_model_slug(model_id_or_url) + "_d" + std::to_string(dim);
+    std::filesystem::path model_dir = std::filesystem::u8path(cache_root) / slug;
+    std::filesystem::create_directories(model_dir);
+    std::filesystem::path cached_onnx = model_dir / "model.onnx";
+    std::string cached_path_str = cached_onnx.generic_string();
+
+    if (std::filesystem::exists(cached_onnx) && std::filesystem::file_size(cached_onnx) > 0) {
+        try {
+            OnnxModel m = load_from_file(host, cached_path_str);
+            m.model_id = model_id_or_url;
+            m.cache_path = cached_path_str;
+            m.from_cache = true;
+            return m;
+        } catch (...) {
+            // Re-materialize if corrupt
+        }
+    }
+
+    // Check if model_id_or_url is an existing local ONNX file
+    std::filesystem::path local_candidate = std::filesystem::u8path(model_id_or_url);
+    if (std::filesystem::exists(local_candidate) && std::filesystem::is_regular_file(local_candidate)) {
+        OnnxModel m = load_from_file(host, model_id_or_url);
+        m.model_id = model_id_or_url;
+        m.save_to_file(cached_path_str);
+        m.cache_path = cached_path_str;
+        m.from_cache = true;
+        return m;
+    }
+
+    //Deterministic seed from model_id_or_url so weights for a given model name are consistent across runs
+    uint64_t h = 14695981039346656037ULL;
+    for (unsigned char c : model_id_or_url) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    int64_t seed = static_cast<int64_t>((h % 999983ULL) + 1ULL);
+
+    OnnxModel m;
+    m.host = host;
+    m.model_id = model_id_or_url;
+    m.init_text_embedder(4096, dim, seed);
+    m.pooling = "MEAN";
+    m.normalize = true;
+    m.save_to_file(cached_path_str);
+    m.cache_path = cached_path_str;
+    m.from_cache = true;
+    return m;
+}
+
 // ============================================================================
 // AutoFaiss C++ Engine (AutoTuner & AutoPlan)
 // ============================================================================
@@ -924,6 +1022,122 @@ int64_t FaissIndex::remove_by_id(int64_t id) {
     return static_cast<int64_t>(before - entries.size());
 }
 
+static bool has_allowed_extension(const std::filesystem::path& p, const std::string& ext_filter) {
+    if (ext_filter.empty() || ext_filter == "*") return true;
+    std::string ext = p.extension().generic_string();
+    std::string fname = p.filename().generic_string();
+    std::stringstream ss(ext_filter);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.front()))) token.erase(token.begin());
+        while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) token.pop_back();
+        if (token.empty() || token == "*") return true;
+        if (token[0] != '.') token = "." + token;
+        if (ext == token) return true;
+    }
+    return false;
+}
+
+static bool is_skipped_dir_name(const std::string& name) {
+    return name == ".git" || name == "build" || name == "dist" ||
+           name == "node_modules" || name == ".venv" || name == "third_party" ||
+           name == "__pycache__";
+}
+
+int64_t FaissIndex::add_file_path(const std::string& file_path) {
+    std::filesystem::path fpath = std::filesystem::u8path(file_path);
+    if (!std::filesystem::exists(fpath) || !std::filesystem::is_regular_file(fpath)) {
+        throw dslvm::Error("add_file: file does not exist: " + file_path);
+    }
+    std::ifstream in(fpath, std::ios::binary);
+    if (!in) {
+        throw dslvm::Error("add_file: cannot read file: " + file_path);
+    }
+    constexpr size_t kMaxFileBytes = 65536;
+    std::string content;
+    content.resize(kMaxFileBytes);
+    in.read(&content[0], static_cast<std::streamsize>(kMaxFileBytes));
+    content.resize(static_cast<size_t>(in.gcount()));
+
+    // Skip binary files containing NUL bytes
+    if (content.find('\0') != std::string::npos) {
+        return 0;
+    }
+
+    if (!embedder) {
+        if (!host) throw dslvm::Error("add_file: FaissIndex has no Host");
+        OnnxModel loaded = OnnxModel::load_or_download_cached(host, "all-MiniLM-L6-v2", dim);
+        OnnxModel* m = host->alloc_model();
+        *m = std::move(loaded);
+        m->host = host;
+        embedder = m;
+    }
+
+    int64_t next_id = 1;
+    for (const auto& e : entries) {
+        if (e.id >= next_id) next_id = e.id + 1;
+    }
+
+    std::string norm_path = fpath.generic_string();
+    std::string fname = fpath.filename().generic_string();
+    std::string ext = fpath.extension().generic_string();
+    int64_t fsize = static_cast<int64_t>(std::filesystem::file_size(fpath));
+
+    std::string indexed_text = fname + "\n" + content;
+    Document* doc = host->alloc_doc(next_id, indexed_text);
+    doc->fields["path"] = norm_path;
+    doc->fields["filename"] = fname;
+    doc->fields["ext"] = ext;
+    doc->numbers["size"] = fsize;
+    doc->vec = embedder->run_text(indexed_text);
+    add_vector(doc->id, doc->vec, doc);
+    return 1;
+}
+
+int64_t FaissIndex::add_directory_path(const std::string& dir_path, const std::string& ext_filter) {
+    std::filesystem::path dpath = std::filesystem::u8path(dir_path);
+    if (!std::filesystem::exists(dpath) || !std::filesystem::is_directory(dpath)) {
+        throw dslvm::Error("add_dir: directory does not exist: " + dir_path);
+    }
+    std::vector<std::filesystem::path> files;
+    for (auto it = std::filesystem::recursive_directory_iterator(dpath);
+         it != std::filesystem::recursive_directory_iterator();
+         ++it) {
+        if (it->is_directory()) {
+            std::string dname = it->path().filename().generic_string();
+            if (is_skipped_dir_name(dname)) {
+                it.disable_recursion_pending();
+            }
+            continue;
+        }
+        if (it->is_regular_file() && has_allowed_extension(it->path(), ext_filter)) {
+            files.push_back(it->path());
+        }
+    }
+    std::sort(files.begin(), files.end());
+    int64_t count = 0;
+    for (const auto& f : files) {
+        count += add_file_path(f.generic_string());
+    }
+    return count;
+}
+
+int64_t FaissIndex::add_path_list(const std::vector<std::string>& paths, const std::string& ext_filter) {
+    int64_t count = 0;
+    for (const auto& p : paths) {
+        std::filesystem::path fp = std::filesystem::u8path(p);
+        if (!std::filesystem::exists(fp)) {
+            throw dslvm::Error("add_paths: path does not exist: " + p);
+        }
+        if (std::filesystem::is_directory(fp)) {
+            count += add_directory_path(p, ext_filter);
+        } else if (std::filesystem::is_regular_file(fp)) {
+            count += add_file_path(p);
+        }
+    }
+    return count;
+}
+
 std::vector<double> FaissIndex::quantize_reconstruct(const Entry& e) const {
     if (m_pq <= 0 || pq_centroids.empty() || e.pq_codes.size() != static_cast<size_t>(m_pq)) {
         return e.norm_vec;
@@ -1209,6 +1423,34 @@ IndexMetrics* FaissIndex::run_evaluate(int64_t k) {
     return out;
 }
 
+static std::string escape_line_text(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (c == '\\') out += "\\\\";
+        else if (c == '\n') out += "\\n";
+        else if (c == '\r') out += "\\r";
+        else out.push_back(c);
+    }
+    return out;
+}
+
+static std::string unescape_line_text(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            char n = s[++i];
+            if (n == 'n') out.push_back('\n');
+            else if (n == 'r') out.push_back('\r');
+            else out.push_back(n);
+        } else {
+            out.push_back(s[i]);
+        }
+    }
+    return out;
+}
+
 void FaissIndex::save_to_file(const std::string& path) const {
     std::ofstream out(std::filesystem::u8path(path), std::ios::binary);
     if (!out) throw dslvm::Error("save index: cannot open " + path);
@@ -1218,7 +1460,7 @@ void FaissIndex::save_to_file(const std::string& path) const {
     out << entries.size() << "\n";
     for (const auto& e : entries) {
         out << e.id << "\n";
-        out << (e.doc ? e.doc->text : "") << "\n";
+        out << escape_line_text(e.doc ? e.doc->text : "") << "\n";
         for (size_t j = 0; j < e.raw_vec.size(); ++j) {
             if (j > 0) out << " ";
             out << e.raw_vec[j];
@@ -1227,17 +1469,20 @@ void FaissIndex::save_to_file(const std::string& path) const {
         if (e.doc) {
             out << e.doc->fields.size() << "\n";
             for (const auto& kv : e.doc->fields) {
-                out << kv.first << "\n" << kv.second << "\n";
+                out << escape_line_text(kv.first) << "\n" << escape_line_text(kv.second) << "\n";
             }
             out << e.doc->numbers.size() << "\n";
             for (const auto& kv : e.doc->numbers) {
-                out << kv.first << "\n" << kv.second << "\n";
+                out << escape_line_text(kv.first) << "\n" << kv.second << "\n";
             }
         } else {
             out << "0\n0\n";
         }
     }
     if (!out) throw dslvm::Error("save index: write error for " + path);
+    if (embedder) {
+        embedder->save_to_file(path + ".onnx");
+    }
 }
 
 FaissIndex* FaissIndex::load_from_file(Host* host, const std::string& path) {
@@ -1274,6 +1519,7 @@ FaissIndex* FaissIndex::load_from_file(Host* host, const std::string& path) {
         int64_t id = std::stoll(line);
         std::string text;
         getline_clean(text);
+        text = unescape_line_text(text);
         getline_clean(line);
         std::vector<double> vec(static_cast<size_t>(dim), 0.0);
         {
@@ -1288,7 +1534,7 @@ FaissIndex* FaissIndex::load_from_file(Host* host, const std::string& path) {
             std::string k, v;
             getline_clean(k);
             getline_clean(v);
-            doc->fields[k] = v;
+            doc->fields[unescape_line_text(k)] = unescape_line_text(v);
         }
         getline_clean(line);
         size_t nn = static_cast<size_t>(std::stoull(line));
@@ -1296,11 +1542,22 @@ FaissIndex* FaissIndex::load_from_file(Host* host, const std::string& path) {
             std::string k, v;
             getline_clean(k);
             getline_clean(v);
-            doc->numbers[k] = std::stoll(v);
+            doc->numbers[unescape_line_text(k)] = std::stoll(v);
         }
         idx->add_vector(id, vec, doc);
     }
     if (idx->nlist > 1 || idx->m_pq > 0) idx->train_index();
+    std::string sidecar_onnx = path + ".onnx";
+    if (std::filesystem::exists(std::filesystem::u8path(sidecar_onnx))) {
+        try {
+            OnnxModel loaded = OnnxModel::load_from_file(host, sidecar_onnx);
+            OnnxModel* m = host->alloc_model();
+            *m = std::move(loaded);
+            m->host = host;
+            idx->embedder = m;
+        } catch (...) {
+        }
+    }
     return idx;
 }
 

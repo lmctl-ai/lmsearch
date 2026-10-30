@@ -106,6 +106,19 @@ let v2 = synthetic_vector(12, 0, 1, 0.01);
 assert_true(l2_distance(v1, v2) < 0.0001, "identical synthetic vectors must have zero L2 distance");
 assert_true(cosine_similarity(v1, v2) > 0.999, "identical synthetic vectors must have cosine similarity ~1.0");
 
+# 5. Cached pretrained ONNX model weights + file & directory indexing + search_text
+let cached_model = onnx_pretrained("all-MiniLM-L6-v2", "build/test_cache");
+assert_true(cached_model.cached(), "pretrained ONNX model must be cached");
+assert_true(file_exists(cached_model.cache_path()), "cached model.onnx must exist on disk");
+
+let file_idx = flat_index(cached_model.output_dim(), Metric.COSINE).embedder(cached_model);
+let plist = str_list().add("README.md").add("durable-memory");
+let indexed_count = file_idx.add_paths(plist);
+assert_true(indexed_count >= 2, "add_paths must index README.md and durable-memory/");
+let file_hits = file_idx.search_text("ONNX and FAISS vector search", 2);
+assert_true(file_hits.len() == 2, "search_text on indexed files must return 2 hits");
+assert_true(str_len(file_hits.at(0).path()) > 0, "file hit must record source file path");
+
 report("status", "all_assertions_passed");
 end _lmcode_
 

@@ -24,6 +24,9 @@ struct OnnxModel {
     std::string pooling = "MEAN";
     bool normalize = true;
     std::string transform_rule;
+    std::string model_id = "custom";
+    std::string cache_path;
+    bool from_cache = false;
     std::vector<std::string> node_ops;
     // Deterministic weights:
     // For text/token embedder: token_table [vocab_size * output_dim], proj [output_dim * output_dim], bias [output_dim]
@@ -42,6 +45,11 @@ struct OnnxModel {
     std::vector<double> run_vector(const std::vector<double>& input) const;
     void save_to_file(const std::string& path) const;
     static OnnxModel load_from_file(Host* host, const std::string& path);
+    static OnnxModel load_or_download_cached(
+        Host* host,
+        const std::string& model_id_or_url,
+        int64_t requested_dim = 0,
+        const std::string& custom_cache_dir = "");
 };
 
 struct Document {
@@ -154,6 +162,9 @@ struct FaissIndex {
     std::string effective_params() const;
     void train_index();
     void add_vector(int64_t id, const std::vector<double>& vec, Document* doc);
+    int64_t add_file_path(const std::string& file_path);
+    int64_t add_directory_path(const std::string& dir_path, const std::string& ext_filter = "");
+    int64_t add_path_list(const std::vector<std::string>& paths, const std::string& ext_filter = "");
     int64_t remove_by_id(int64_t id);
     std::vector<double> reconstruct_vec(int64_t id) const;
     std::vector<double> quantize_reconstruct(const Entry& e) const;
