@@ -66,6 +66,24 @@ grep -q '"ok": true' build/cli_search_out.json
 grep -q '"operation": "search"' build/cli_search_out.json
 grep -q '"path":' build/cli_search_out.json
 
+echo "==> 7. Verifying CLI common filter flags AND lmcode (--dsl) config/callbacks on index and search"
+"$BIN" search --index build/cli_files.faiss --query "ONNX and FAISS vector search" --ext .md --path-prefix README --contains lmsearch -k 5 > build/cli_filtered_search.json
+grep -q '"ok": true' build/cli_filtered_search.json
+grep -q '"filename": "README.md"' build/cli_filtered_search.json
+
+"$BIN" index build/hairy_corpus_ann.md build/hairy_corpus_engine.cpp build/hairy_corpus_draft.md build/hairy_corpus_legacy.md \
+    --output build/cli_hairy.faiss --model all-MiniLM-L6-v2 --dim 16 --cache-dir build/cli_model_cache \
+    --dsl build/hairy_search_filters.dslb > build/cli_hairy_index.json
+grep -q '"ok": true' build/cli_hairy_index.json
+grep -q '"files_indexed": 2' build/cli_hairy_index.json
+grep -q '"file_filter_rule": "ingest_gate"' build/cli_hairy_index.json
+
+"$BIN" search --index build/cli_hairy.faiss --query "faiss hnsw vector search" \
+    --dsl build/hairy_search_filters.dslb -k 5 > build/cli_hairy_search.json
+grep -q '"ok": true' build/cli_hairy_search.json
+grep -q '"filter_rule": "complex_doc_predicate"' build/cli_hairy_search.json
+grep -q '"rerank_rule": "multi_signal_rerank"' build/cli_hairy_search.json
+
 if [ -x "./build/lmsearch-upstream" ]; then
     echo "==> 6. Verifying upstream FAISS + ONNX static-linked binary (build/lmsearch-upstream)"
     ./build/lmsearch-upstream --version | grep -q "^lmsearch "

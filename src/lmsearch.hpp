@@ -121,6 +121,22 @@ struct IndexMetrics {
     double ms_per_query = 0.0;
 };
 
+struct SearchFilterOpts {
+    std::string ext_filter;
+    std::string path_prefix;
+    std::string path_contains;
+    std::string exclude_path;
+    std::string text_contains;
+    std::map<std::string, std::string> required_fields;
+    double min_score = -1e30;
+    double max_distance = 1e30;
+    int64_t min_size = -1;
+    int64_t max_size = -1;
+
+    void clear();
+    bool matches_doc(const Document* doc) const;
+};
+
 struct FaissIndex {
     Host* host = nullptr;
     int64_t dim = 0;
@@ -142,6 +158,8 @@ struct FaissIndex {
     OnnxModel* embedder = nullptr;
     std::string filter_rule;
     std::string rerank_rule;
+    std::string file_filter_rule;
+    SearchFilterOpts filter_opts;
 
     struct Entry {
         int64_t id = 0;

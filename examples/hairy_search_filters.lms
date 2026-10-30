@@ -1,0 +1,141 @@
+# examples/hairy_search_filters.lms
+# Demonstrates both built-in common search filters and hairy custom _lmcode_
+# configuration & callback functions (@config, @file_filter, @filter, @rerank).
+
+program = _lmcode_ schema="../schema/lmsearch.dsl.json";
+
+@file_filter
+fn ingest_gate(doc: Document) -> bool implements FileFilter {
+    # Reject empty or tiny files, draft files, and deprecated paths
+    let keep = true;
+    if (doc.size() < 20) {
+        keep = false;
+    }
+    if (str_contains(doc.path(), "deprecated") || str_contains(doc.filename(), "draft")) {
+        keep = false;
+    }
+    if (keep) {
+        # Enrich document metadata at index time based on file extension and content
+        if (doc.ext() == ".md") {
+            doc.field("category", "docs");
+        } else {
+            doc.field("category", "code");
+        }
+        if (str_contains(str_lower(doc.text()), "faiss") || str_contains(str_lower(doc.text()), "hnsw")) {
+            doc.field("topic", "ann");
+        } else {
+            doc.field("topic", "general");
+        }
+    }
+    return keep;
+}
+
+@config
+fn configure_hairy_search(idx: FaissIndex) -> void implements SearchConfig {
+    # Programmatically configure index parameters, common filters, and SAM callbacks
+    idx.ef_search(64)
+       .filter_exclude_path("legacy,archive")
+       .filter_min_score(0.05)
+       .filter_rule("complex_doc_predicate")
+       .rerank_rule("multi_signal_rerank");
+}
+
+@filter
+fn complex_doc_predicate(id: int, doc: Document) -> bool implements VectorFilter {
+    # Hairy multi-condition predicate combining path, extension, size, metadata, and content
+    let allow = false;
+    let ext_ok = (doc.ext() == ".md" || doc.ext() == ".cpp" || doc.ext() == ".py");
+    let not_test = !str_contains(doc.filename(), "_test");
+    let size_ok = (doc.size() >= 25 && doc.size() <= 32768);
+    let text_lc = str_lower(doc.text());
+    let has_keywords = (str_contains(text_lc, "vector") || str_contains(text_lc, "onnx") || str_contains(text_lc, "faiss"));
+
+    if (id > 0 && ext_ok && not_test && size_ok && has_keywords) {
+        if (doc.has("category")) {
+            allow = (doc.get("category") == "docs" || doc.get("category") == "code");
+        } else {
+            allow = true;
+        }
+    }
+    return allow;
+}
+
+@rerank
+fn multi_signal_rerank(hit: SearchHit, query_text: string) -> float implements Reranker {
+    let score = hit.score();
+    let doc = hit.document();
+    let q_lc = str_lower(query_text);
+    let t_lc = str_lower(doc.text());
+
+    # Boost exact query token overlap
+    let tokens = str_split(q_lc, " ");
+    let i = 0;
+    while (i < tokens.len()) {
+        let tok = str_trim(tokens.at(i));
+        if (str_len(tok) > 2 && str_contains(t_lc, tok)) {
+            score = score + 0.12;
+        }
+        i = i + 1;
+    }
+
+    # Boost docs with topic=ann or code extensions
+    if (doc.has("topic")) {
+        if (doc.get("topic") == "ann") {
+            score = score + 0.18;
+        }
+    }
+    if (doc.ext() == ".cpp") {
+        score = score + 0.08;
+    }
+    return score;
+}
+
+# Build a corpus of files on disk to test both common filters and hairy callbacks
+file_write("build/hairy_corpus_ann.md", "# FAISS HNSW Vector Search\nFast approximate nearest neighbor vector search with HNSW and IVF.\n");
+file_write("build/hairy_corpus_engine.cpp", "// C++ ONNX + FAISS engine implementation for vector embedding search\nint run_faiss_search() { return 0; }\n");
+file_write("build/hairy_corpus_draft.md", "# Draft notes on vector search that should be rejected by @file_filter\n");
+file_write("build/hairy_corpus_legacy.md", "# Legacy archive vector notes that should be excluded by path filter\n");
+
+let model = onnx_pretrained("all-MiniLM-L6-v2", 16);
+let idx = hnsw_index(16, 8, Metric.COSINE)
+    .embedder(model)
+    .file_filter_rule("ingest_gate");
+
+let paths = str_list()
+    .add("build/hairy_corpus_ann.md")
+    .add("build/hairy_corpus_engine.cpp")
+    .add("build/hairy_corpus_draft.md")
+    .add("build/hairy_corpus_legacy.md");
+
+let indexed_count = idx.add_paths(paths);
+# hairy_corpus_draft.md is rejected by ingest_gate (@file_filter), leaving 3 files
+assert_true(indexed_count == 3, "ingest_gate must reject draft file and keep 3 files");
+
+# 1. Common fluent filter methods (e.g. filter_ext, filter_text_contains)
+idx.filter_ext(".cpp").filter_text_contains("ONNX");
+let cpp_only = idx.search_text("ONNX C++ vector engine", 5);
+assert_true(cpp_only.len() == 1, "filter_ext(.cpp) must return exactly 1 hit");
+assert_true(str_ends_with(cpp_only.at(0).path(), "hairy_corpus_engine.cpp"), "filter_ext(.cpp) must return only the .cpp file");
+
+# 2. Reset rules and apply hairy @filter + @rerank + exclude_path
+idx.clear_rules()
+   .filter_exclude_path("legacy")
+   .filter_min_score(0.05)
+   .filter_rule("complex_doc_predicate")
+   .rerank_rule("multi_signal_rerank");
+
+let hairy_hits = idx.search_text("faiss hnsw vector search", 5)
+    .emit("hairy_filtered_search");
+assert_true(hairy_hits.len() == 2, "hairy filter + exclude_path must return 2 hits");
+idx.save("build/hairy_corpus.faiss");
+end _lmcode_
+
+mkdir("build");
+savedsl(program, "build/hairy_search_filters.dslb");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = system ${[bin]} --dsl build/hairy_search_filters.dslb;
+if (r.code != 0) {
+    print(r.stderr);
+}
+assert(r.code == 0, "hairy_search_filters.lms failed: " + r.stdout);
+print(r.stdout);

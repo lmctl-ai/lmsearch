@@ -72,6 +72,24 @@
         }
       ],
       "returns": "void"
+    },
+    "FileFilter": {
+      "params": [
+        {
+          "name": "doc",
+          "type": "Document"
+        }
+      ],
+      "returns": "bool"
+    },
+    "SearchConfig": {
+      "params": [
+        {
+          "name": "index",
+          "type": "FaissIndex"
+        }
+      ],
+      "returns": "void"
     }
   },
   "functions": {
@@ -960,6 +978,30 @@
             "params": [],
             "returns": "FloatList"
           }
+        ],
+        "path": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "filename": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "ext": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "size": [
+          {
+            "params": [],
+            "returns": "int"
+          }
         ]
       }
     },
@@ -1229,6 +1271,88 @@
           {
             "params": [
               "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "file_filter_rule": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_ext": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_path_prefix": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_path_contains": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_exclude_path": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_text_contains": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_field": [
+          {
+            "params": [
+              "string",
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_size_range": [
+          {
+            "params": [
+              "int",
+              "int"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_min_score": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_max_distance": [
+          {
+            "params": [
+              "float"
             ],
             "returns": "self"
           }

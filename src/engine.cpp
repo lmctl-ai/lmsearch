@@ -1025,7 +1025,6 @@ int64_t FaissIndex::remove_by_id(int64_t id) {
 static bool has_allowed_extension(const std::filesystem::path& p, const std::string& ext_filter) {
     if (ext_filter.empty() || ext_filter == "*") return true;
     std::string ext = p.extension().generic_string();
-    std::string fname = p.filename().generic_string();
     std::stringstream ss(ext_filter);
     std::string token;
     while (std::getline(ss, token, ',')) {
@@ -1036,6 +1035,63 @@ static bool has_allowed_extension(const std::filesystem::path& p, const std::str
         if (ext == token) return true;
     }
     return false;
+}
+
+void SearchFilterOpts::clear() {
+    ext_filter.clear();
+    path_prefix.clear();
+    path_contains.clear();
+    exclude_path.clear();
+    text_contains.clear();
+    required_fields.clear();
+    min_score = -1e30;
+    max_distance = 1e30;
+    min_size = -1;
+    max_size = -1;
+}
+
+bool SearchFilterOpts::matches_doc(const Document* doc) const {
+    bool has_doc_constraint =
+        !ext_filter.empty() || !path_prefix.empty() || !path_contains.empty() ||
+        !exclude_path.empty() || !text_contains.empty() || !required_fields.empty() ||
+        min_size >= 0 || max_size >= 0;
+    if (!has_doc_constraint) return true;
+    if (!doc) return false;
+
+    std::string dpath;
+    auto it_p = doc->fields.find("path");
+    if (it_p != doc->fields.end()) dpath = it_p->second;
+
+    if (!ext_filter.empty() && ext_filter != "*") {
+        if (!has_allowed_extension(std::filesystem::u8path(dpath), ext_filter)) return false;
+    }
+    if (!path_prefix.empty()) {
+        if (dpath.compare(0, path_prefix.size(), path_prefix) != 0) return false;
+    }
+    if (!path_contains.empty()) {
+        if (dpath.find(path_contains) == std::string::npos) return false;
+    }
+    if (!exclude_path.empty()) {
+        std::stringstream ss(exclude_path);
+        std::string pat;
+        while (std::getline(ss, pat, ',')) {
+            if (!pat.empty() && dpath.find(pat) != std::string::npos) return false;
+        }
+    }
+    if (!text_contains.empty()) {
+        if (doc->text.find(text_contains) == std::string::npos) return false;
+    }
+    for (const auto& kv : required_fields) {
+        auto it = doc->fields.find(kv.first);
+        if (it == doc->fields.end() || it->second != kv.second) return false;
+    }
+    if (min_size >= 0 || max_size >= 0) {
+        auto it_s = doc->numbers.find("size");
+        int64_t sz = (it_s != doc->numbers.end()) ? it_s->second : static_cast<int64_t>(doc->text.size());
+        if (min_size >= 0 && sz < min_size) return false;
+        if (max_size >= 0 && sz > max_size) return false;
+    }
+    return true;
 }
 
 static bool is_skipped_dir_name(const std::string& name) {
@@ -1049,6 +1105,21 @@ int64_t FaissIndex::add_file_path(const std::string& file_path) {
     if (!std::filesystem::exists(fpath) || !std::filesystem::is_regular_file(fpath)) {
         throw dslvm::Error("add_file: file does not exist: " + file_path);
     }
+    if (!filter_opts.ext_filter.empty() && !has_allowed_extension(fpath, filter_opts.ext_filter)) {
+        return 0;
+    }
+    std::string norm_path = fpath.generic_string();
+    if (!filter_opts.exclude_path.empty()) {
+        std::stringstream ss(filter_opts.exclude_path);
+        std::string pat;
+        while (std::getline(ss, pat, ',')) {
+            if (!pat.empty() && norm_path.find(pat) != std::string::npos) return 0;
+        }
+    }
+    int64_t fsize = static_cast<int64_t>(std::filesystem::file_size(fpath));
+    if (filter_opts.min_size >= 0 && fsize < filter_opts.min_size) return 0;
+    if (filter_opts.max_size >= 0 && fsize > filter_opts.max_size) return 0;
+
     std::ifstream in(fpath, std::ios::binary);
     if (!in) {
         throw dslvm::Error("add_file: cannot read file: " + file_path);
@@ -1078,10 +1149,8 @@ int64_t FaissIndex::add_file_path(const std::string& file_path) {
         if (e.id >= next_id) next_id = e.id + 1;
     }
 
-    std::string norm_path = fpath.generic_string();
     std::string fname = fpath.filename().generic_string();
     std::string ext = fpath.extension().generic_string();
-    int64_t fsize = static_cast<int64_t>(std::filesystem::file_size(fpath));
 
     std::string indexed_text = fname + "\n" + content;
     Document* doc = host->alloc_doc(next_id, indexed_text);
@@ -1089,7 +1158,21 @@ int64_t FaissIndex::add_file_path(const std::string& file_path) {
     doc->fields["filename"] = fname;
     doc->fields["ext"] = ext;
     doc->numbers["size"] = fsize;
-    doc->vec = embedder->run_text(indexed_text);
+
+    if (!filter_opts.matches_doc(doc)) {
+        return 0;
+    }
+
+    // SAM FileFilter hook (@file_filter implements FileFilter(Document) -> bool)
+    if (!file_filter_rule.empty() && host) {
+        dslvm::Value allow = host->invoke_rule(
+            file_filter_rule,
+            "interface FileFilter(Document) -> bool",
+            {dslvm::Value::object("Document", doc)});
+        if (!allow.b) return 0;
+    }
+
+    doc->vec = embedder->run_text(doc->text);
     add_vector(doc->id, doc->vec, doc);
     return 1;
 }
@@ -1198,6 +1281,7 @@ SearchResults* FaissIndex::run_search(const std::vector<double>& query, int64_t 
         if (nlist > 1 && !centroids.empty() && cur_nprobe < nlist) {
             if (!allowed_lists[static_cast<size_t>(e.list_id)]) continue;
         }
+        if (!filter_opts.matches_doc(e.doc)) continue;
         // SAM VectorFilter hook (acts as faiss::IDSelector)
         if (!filter_rule.empty() && host) {
             dslvm::Value keep = host->invoke_rule(
@@ -1217,6 +1301,8 @@ SearchResults* FaissIndex::run_search(const std::vector<double>& query, int64_t 
             dist = ip;
             score = ip;
         }
+        if (dist > filter_opts.max_distance) continue;
+        if (rerank_rule.empty() && score < filter_opts.min_score) continue;
         cands.push_back({dist, score, e.id, e.doc});
     }
 
@@ -1247,6 +1333,7 @@ SearchResults* FaissIndex::run_search(const std::vector<double>& query, int64_t 
                 {dslvm::Value::object("SearchHit", hp), dslvm::Value::string(qtext)});
             hp->score = new_score.f;
         }
+        if (hp->score < filter_opts.min_score) continue;
         res->hits.push_back(hp);
     }
     if (!rerank_rule.empty()) {

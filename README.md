@@ -21,7 +21,9 @@
 | Annotation | SAM Interface | Signature | Role |
 |---|---|---|---|
 | `@embed` | `EmbeddingTransform` | `(FloatList, int) -> FloatList` | Post-processes ONNX embeddings before indexing or querying |
-| `@policy` | `IndexPolicy` | `(AutoPlan) -> bool` | Accepts or rejects candidate AutoFaiss index plans |
+| `@policy` | `IndexPolicy` | `(AutoPlan) -> string` | Selects or overrides candidate AutoFaiss index keys |
+| `@file_filter` | `FileFilter` | `(Document) -> bool` | Ingest-time file gate & metadata enricher before embedding |
+| `@config` | `SearchConfig` | `(FaissIndex) -> void` | Programmatic `lmcode` configuration of index parameters, common filters, and rules |
 | `@filter` | `VectorFilter` | `(int, Document) -> bool` | Programmable `faiss::IDSelector` predicate during FAISS search |
 | `@rerank` | `Reranker` | `(SearchHit, string) -> float` | Rescores candidate FAISS hits using document fields and query text |
 | `@audit` | `AuditRule` | `(IndexMetrics) -> void` | Post-run quality gate invoked on every evaluated `IndexMetrics` |
@@ -46,24 +48,38 @@ make with-upstream   # Produces build/lmsearch-upstream
 ```bash
 lmscript examples/basic_search.lms
 lmscript examples/file_and_dir_search.lms
+lmscript examples/hairy_search_filters.lms
 lmscript examples/autofaiss_tuning.lms
 lmscript examples/sam_rules.lms
 lmscript examples/persistence_and_quantization.lms
 ```
 
-### Direct CLI: Index Files/Directories & Search Text
+### Direct CLI: Index Files/Directories, Common Filter Options & `lmcode` Callbacks
 
 ```bash
 # 1. Index a list of files and directories (downloads & caches ONNX model weights in ~/.cache/lmsearch/models)
 ./build/lmsearch index README.md durable-memory examples \
     --output build/docs.faiss \
-    --model all-MiniLM-L6-v2
+    --model all-MiniLM-L6-v2 \
+    --ext .md,.lms \
+    --exclude-path draft,legacy
 
-# 2. Search text against the saved index
+# 2. Search text with common CLI filter options
 ./build/lmsearch search \
     --index build/docs.faiss \
     --query "AutoFaiss memory budget and ONNX embedding" \
+    --ext .md \
+    --path-prefix durable-memory \
+    --contains AutoFaiss \
+    --min-score 0.10 \
     -k 3
+
+# 3. Index or search with hairy lmcode callbacks (@config, @file_filter, @filter, @rerank)
+./build/lmsearch search \
+    --index build/hairy_corpus.faiss \
+    --query "faiss hnsw vector search" \
+    --dsl build/hairy_search_filters.dslb \
+    -k 5
 ```
 
 ### CLI Discovery Flags

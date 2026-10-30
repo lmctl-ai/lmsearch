@@ -503,6 +503,27 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     reg.method("Document", "values", {}, "FloatList", [&colls](void* self, Args&) {
         return Value::object("FloatList", colls.make_float_list(doc_ref(self).vec));
     });
+    reg.method("Document", "path", {}, "string", [](void* self, Args&) {
+        auto& f = doc_ref(self).fields;
+        auto it = f.find("path");
+        return Value::string(it != f.end() ? it->second : "");
+    });
+    reg.method("Document", "filename", {}, "string", [](void* self, Args&) {
+        auto& f = doc_ref(self).fields;
+        auto it = f.find("filename");
+        return Value::string(it != f.end() ? it->second : "");
+    });
+    reg.method("Document", "ext", {}, "string", [](void* self, Args&) {
+        auto& f = doc_ref(self).fields;
+        auto it = f.find("ext");
+        return Value::string(it != f.end() ? it->second : "");
+    });
+    reg.method("Document", "size", {}, "int", [](void* self, Args&) {
+        auto& d = doc_ref(self);
+        auto it = d.numbers.find("size");
+        if (it != d.numbers.end()) return Value::integer(it->second);
+        return Value::integer(static_cast<int64_t>(d.text.size()));
+    });
 
     // AutoTuner methods
     reg.method("AutoTuner", "metric", {"Metric"}, "AutoTuner", [](void* self, Args& a) {
@@ -670,10 +691,54 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         index_ref(self).rerank_rule = a[0].s;
         return Value::object("FaissIndex", self);
     });
+    reg.method("FaissIndex", "file_filter_rule", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).file_filter_rule = a[0].s;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_ext", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.ext_filter = a[0].s;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_path_prefix", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.path_prefix = a[0].s;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_path_contains", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.path_contains = a[0].s;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_exclude_path", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.exclude_path = a[0].s;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_text_contains", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.text_contains = a[0].s;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_field", {"string", "string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.required_fields[a[0].s] = a[1].s;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_size_range", {"int", "int"}, "FaissIndex", [](void* self, Args& a) {
+        auto& opts = index_ref(self).filter_opts;
+        opts.min_size = a[0].i;
+        opts.max_size = a[1].i;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_min_score", {"float"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.min_score = a[0].f;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "filter_max_distance", {"float"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.max_distance = a[0].f;
+        return Value::object("FaissIndex", self);
+    });
     reg.method("FaissIndex", "clear_rules", {}, "FaissIndex", [](void* self, Args&) {
         auto& idx = index_ref(self);
         idx.filter_rule.clear();
         idx.rerank_rule.clear();
+        idx.file_filter_rule.clear();
+        idx.filter_opts.clear();
         return Value::object("FaissIndex", self);
     });
     reg.method("FaissIndex", "train", {}, "FaissIndex", [](void* self, Args&) {

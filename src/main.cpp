@@ -115,46 +115,204 @@ int run_bytecode(lmsearch::Host& host, const std::string& dsl_path, bool dryrun,
     return dslvm::report_ok(host.build_result_json());
 }
 
+struct CliFilterConfig {
+    std::string dsl_path;
+    std::string config_rule;
+    std::string filter_rule;
+    std::string rerank_rule;
+    std::string file_filter_rule;
+    std::string embed_rule;
+
+    std::string ext_filter;
+    std::string path_prefix;
+    std::string path_contains;
+    std::string exclude_path;
+    std::string text_contains;
+    std::map<std::string, std::string> required_fields;
+    int64_t min_size = -1;
+    int64_t max_size = -1;
+    bool has_min_score = false;
+    double min_score = -1e30;
+    bool has_max_distance = false;
+    double max_distance = 1e30;
+    int64_t nprobe = -1;
+    int64_t ef_search = -1;
+    std::string params;
+
+    bool parse_opt(const std::vector<std::string>& args, size_t& i) {
+        const std::string& a = args[i];
+        if ((a == "--dsl" || a == "--lmcode") && i + 1 < args.size()) {
+            dsl_path = args[++i];
+            return true;
+        } else if (a == "--config-rule" && i + 1 < args.size()) {
+            config_rule = args[++i];
+            return true;
+        } else if (a == "--filter-rule" && i + 1 < args.size()) {
+            filter_rule = args[++i];
+            return true;
+        } else if (a == "--rerank-rule" && i + 1 < args.size()) {
+            rerank_rule = args[++i];
+            return true;
+        } else if (a == "--file-filter-rule" && i + 1 < args.size()) {
+            file_filter_rule = args[++i];
+            return true;
+        } else if (a == "--embed-rule" && i + 1 < args.size()) {
+            embed_rule = args[++i];
+            return true;
+        } else if (a == "--ext" && i + 1 < args.size()) {
+            ext_filter = args[++i];
+            return true;
+        } else if (a == "--path-prefix" && i + 1 < args.size()) {
+            path_prefix = args[++i];
+            return true;
+        } else if (a == "--path-contains" && i + 1 < args.size()) {
+            path_contains = args[++i];
+            return true;
+        } else if (a == "--exclude-path" && i + 1 < args.size()) {
+            exclude_path = args[++i];
+            return true;
+        } else if ((a == "--contains" || a == "--text-contains") && i + 1 < args.size()) {
+            text_contains = args[++i];
+            return true;
+        } else if (a == "--field" && i + 1 < args.size()) {
+            std::string kv = args[++i];
+            auto eq = kv.find('=');
+            if (eq == std::string::npos || eq == 0) {
+                throw dslvm::Error("CLI_USAGE", "--field requires KEY=VALUE format: " + kv);
+            }
+            required_fields[kv.substr(0, eq)] = kv.substr(eq + 1);
+            return true;
+        } else if (a == "--min-size" && i + 1 < args.size()) {
+            min_size = std::stoll(args[++i]);
+            return true;
+        } else if (a == "--max-size" && i + 1 < args.size()) {
+            max_size = std::stoll(args[++i]);
+            return true;
+        } else if (a == "--min-score" && i + 1 < args.size()) {
+            min_score = std::stod(args[++i]);
+            has_min_score = true;
+            return true;
+        } else if (a == "--max-distance" && i + 1 < args.size()) {
+            max_distance = std::stod(args[++i]);
+            has_max_distance = true;
+            return true;
+        } else if (a == "--nprobe" && i + 1 < args.size()) {
+            nprobe = std::stoll(args[++i]);
+            return true;
+        } else if (a == "--ef-search" && i + 1 < args.size()) {
+            ef_search = std::stoll(args[++i]);
+            return true;
+        } else if (a == "--params" && i + 1 < args.size()) {
+            params = args[++i];
+            return true;
+        }
+        return false;
+    }
+
+    void apply(lmsearch::Host& host, lmsearch::FaissIndex* idx) const {
+        if (!dsl_path.empty()) {
+            std::string bytes = read_binary_file(dsl_path);
+            host.bytecode_bytes = bytes;
+            host.schema_bytes = lmsearch::schema;
+            auto program = dslvm::Program::load(bytes, lmsearch::schema, host.registry);
+            std::string auto_config_rule;
+            for (const auto& entry : program.entries()) {
+                if (entry.iface == "interface VectorFilter(int, Document) -> bool" && idx->filter_rule.empty()) {
+                    idx->filter_rule = entry.name;
+                } else if (entry.iface == "interface Reranker(SearchHit, string) -> float" && idx->rerank_rule.empty()) {
+                    idx->rerank_rule = entry.name;
+                } else if (entry.iface == "interface FileFilter(Document) -> bool" && idx->file_filter_rule.empty()) {
+                    idx->file_filter_rule = entry.name;
+                } else if (entry.iface == "interface EmbeddingTransform(FloatList, int) -> FloatList" &&
+                           idx->embedder && idx->embedder->transform_rule.empty()) {
+                    idx->embedder->transform_rule = entry.name;
+                } else if (entry.iface == "interface SearchConfig(FaissIndex) -> void" && auto_config_rule.empty()) {
+                    auto_config_rule = entry.name;
+                }
+            }
+            std::string cfg = !config_rule.empty() ? config_rule : auto_config_rule;
+            if (!cfg.empty()) {
+                host.invoke_rule(
+                    cfg,
+                    "interface SearchConfig(FaissIndex) -> void",
+                    {dslvm::Value::object("FaissIndex", idx)});
+            }
+        }
+
+        if (!filter_rule.empty()) idx->filter_rule = filter_rule;
+        if (!rerank_rule.empty()) idx->rerank_rule = rerank_rule;
+        if (!file_filter_rule.empty()) idx->file_filter_rule = file_filter_rule;
+        if (!embed_rule.empty() && idx->embedder) idx->embedder->transform_rule = embed_rule;
+
+        if (!ext_filter.empty()) idx->filter_opts.ext_filter = ext_filter;
+        if (!path_prefix.empty()) idx->filter_opts.path_prefix = path_prefix;
+        if (!path_contains.empty()) idx->filter_opts.path_contains = path_contains;
+        if (!exclude_path.empty()) idx->filter_opts.exclude_path = exclude_path;
+        if (!text_contains.empty()) idx->filter_opts.text_contains = text_contains;
+        for (const auto& kv : required_fields) {
+            idx->filter_opts.required_fields[kv.first] = kv.second;
+        }
+        if (min_size >= 0) idx->filter_opts.min_size = min_size;
+        if (max_size >= 0) idx->filter_opts.max_size = max_size;
+        if (has_min_score) idx->filter_opts.min_score = min_score;
+        if (has_max_distance) idx->filter_opts.max_distance = max_distance;
+        if (!params.empty()) idx->apply_param_string(params);
+        if (nprobe > 0) {
+            idx->cur_nprobe = nprobe;
+            idx->param_str = "nprobe=" + std::to_string(nprobe);
+        }
+        if (ef_search > 0) {
+            idx->cur_ef_search = ef_search;
+            idx->param_str = "efSearch=" + std::to_string(ef_search);
+        }
+    }
+};
+
 int run_index_cli(lmsearch::Host& host, const std::vector<std::string>& args) {
     std::string output_path = "build/index.faiss";
     std::string model_id = "all-MiniLM-L6-v2";
     std::string cache_dir;
-    std::string ext_filter;
     std::string index_key = "HNSW16";
     std::string metric = "COSINE";
     int64_t dim = 0;
     bool dryrun = false;
     bool readonly = false;
     std::vector<std::string> paths;
+    CliFilterConfig fcfg;
 
-    for (size_t i = 1; i < args.size(); ++i) {
-        const std::string& a = args[i];
-        if (a == "--dryrun") {
-            dryrun = true;
-        } else if (a == "--readonly") {
-            readonly = true;
-        } else if (a == "--json") {
-        } else if ((a == "--output" || a == "-o" || a == "--index") && i + 1 < args.size()) {
-            output_path = args[++i];
-        } else if ((a == "--model" || a == "-m") && i + 1 < args.size()) {
-            model_id = args[++i];
-        } else if (a == "--cache-dir" && i + 1 < args.size()) {
-            cache_dir = args[++i];
-        } else if (a == "--ext" && i + 1 < args.size()) {
-            ext_filter = args[++i];
-        } else if (a == "--key" && i + 1 < args.size()) {
-            index_key = args[++i];
-        } else if (a == "--metric" && i + 1 < args.size()) {
-            metric = args[++i];
-        } else if (a == "--dim" && i + 1 < args.size()) {
-            dim = std::stoll(args[++i]);
-        } else if (!a.empty() && a[0] != '-') {
-            paths.push_back(a);
-        } else {
-            return dslvm::report_error(
-                "cli",
-                dslvm::Error("CLI_USAGE", "unknown or incomplete index option: " + a));
+    try {
+        for (size_t i = 1; i < args.size(); ++i) {
+            const std::string& a = args[i];
+            if (a == "--dryrun") {
+                dryrun = true;
+            } else if (a == "--readonly") {
+                readonly = true;
+            } else if (a == "--json") {
+            } else if ((a == "--output" || a == "-o" || a == "--index") && i + 1 < args.size()) {
+                output_path = args[++i];
+            } else if ((a == "--model" || a == "-m") && i + 1 < args.size()) {
+                model_id = args[++i];
+            } else if (a == "--cache-dir" && i + 1 < args.size()) {
+                cache_dir = args[++i];
+            } else if (a == "--key" && i + 1 < args.size()) {
+                index_key = args[++i];
+            } else if (a == "--metric" && i + 1 < args.size()) {
+                metric = args[++i];
+            } else if (a == "--dim" && i + 1 < args.size()) {
+                dim = std::stoll(args[++i]);
+            } else if (fcfg.parse_opt(args, i)) {
+            } else if (!a.empty() && a[0] != '-') {
+                paths.push_back(a);
+            } else {
+                return dslvm::report_error(
+                    "cli",
+                    dslvm::Error("CLI_USAGE", "unknown or incomplete index option: " + a));
+            }
         }
+    } catch (const dslvm::Error& e) {
+        return dslvm::report_error("cli", e);
+    } catch (const std::exception& e) {
+        return dslvm::report_error("cli", dslvm::Error("CLI_USAGE", e.what()));
     }
 
     if (readonly) {
@@ -184,7 +342,8 @@ int run_index_cli(lmsearch::Host& host, const std::vector<std::string>& args) {
 
         lmsearch::FaissIndex* idx = host.alloc_index(m->output_dim, index_key, metric);
         idx->embedder = m;
-        int64_t files_indexed = idx->add_path_list(paths, ext_filter);
+        fcfg.apply(host, idx);
+        int64_t files_indexed = idx->add_path_list(paths, "");
         idx->train_index();
         idx->save_to_file(output_path);
 
@@ -198,6 +357,8 @@ int run_index_cli(lmsearch::Host& host, const std::vector<std::string>& args) {
             << ", \"metric\": " << dslvm::json_escape(idx->metric)
             << ", \"files_indexed\": " << files_indexed
             << ", \"ntotal\": " << idx->entries.size()
+            << ", \"file_filter_rule\": " << dslvm::json_escape(idx->file_filter_rule)
+            << ", \"entries_called\": " << host.entries_called
             << ", \"index_path\": " << dslvm::json_escape(output_path) << "}";
         return dslvm::report_ok(out.str());
     } catch (const dslvm::Error& e) {
@@ -214,27 +375,35 @@ int run_search_cli(lmsearch::Host& host, const std::vector<std::string>& args) {
     std::string cache_dir;
     int64_t k = 5;
     std::vector<std::string> positional;
+    CliFilterConfig fcfg;
 
-    for (size_t i = 1; i < args.size(); ++i) {
-        const std::string& a = args[i];
-        if (a == "--json" || a == "--readonly" || a == "--dryrun") {
-        } else if ((a == "--index" || a == "-i") && i + 1 < args.size()) {
-            index_path = args[++i];
-        } else if ((a == "--query" || a == "-q") && i + 1 < args.size()) {
-            query_text = args[++i];
-        } else if ((a == "-k" || a == "--top-k") && i + 1 < args.size()) {
-            k = std::stoll(args[++i]);
-        } else if ((a == "--model" || a == "-m") && i + 1 < args.size()) {
-            model_id = args[++i];
-        } else if (a == "--cache-dir" && i + 1 < args.size()) {
-            cache_dir = args[++i];
-        } else if (!a.empty() && a[0] != '-') {
-            positional.push_back(a);
-        } else {
-            return dslvm::report_error(
-                "cli",
-                dslvm::Error("CLI_USAGE", "unknown or incomplete search option: " + a));
+    try {
+        for (size_t i = 1; i < args.size(); ++i) {
+            const std::string& a = args[i];
+            if (a == "--json" || a == "--readonly" || a == "--dryrun") {
+            } else if ((a == "--index" || a == "-i") && i + 1 < args.size()) {
+                index_path = args[++i];
+            } else if ((a == "--query" || a == "-q") && i + 1 < args.size()) {
+                query_text = args[++i];
+            } else if ((a == "-k" || a == "--top-k") && i + 1 < args.size()) {
+                k = std::stoll(args[++i]);
+            } else if ((a == "--model" || a == "-m") && i + 1 < args.size()) {
+                model_id = args[++i];
+            } else if (a == "--cache-dir" && i + 1 < args.size()) {
+                cache_dir = args[++i];
+            } else if (fcfg.parse_opt(args, i)) {
+            } else if (!a.empty() && a[0] != '-') {
+                positional.push_back(a);
+            } else {
+                return dslvm::report_error(
+                    "cli",
+                    dslvm::Error("CLI_USAGE", "unknown or incomplete search option: " + a));
+            }
         }
+    } catch (const dslvm::Error& e) {
+        return dslvm::report_error("cli", e);
+    } catch (const std::exception& e) {
+        return dslvm::report_error("cli", dslvm::Error("CLI_USAGE", e.what()));
     }
 
     if (query_text.empty()) {
@@ -261,6 +430,7 @@ int run_search_cli(lmsearch::Host& host, const std::vector<std::string>& args) {
             m->host = &host;
             idx->embedder = m;
         }
+        fcfg.apply(host, idx);
         auto qvec = idx->embedder->run_text(query_text);
         lmsearch::SearchResults* res = idx->run_search(qvec, k, query_text);
 
@@ -269,6 +439,9 @@ int run_search_cli(lmsearch::Host& host, const std::vector<std::string>& args) {
             << ", \"index_path\": " << dslvm::json_escape(index_path)
             << ", \"query\": " << dslvm::json_escape(query_text)
             << ", \"k\": " << k
+            << ", \"filter_rule\": " << dslvm::json_escape(idx->filter_rule)
+            << ", \"rerank_rule\": " << dslvm::json_escape(idx->rerank_rule)
+            << ", \"entries_called\": " << host.entries_called
             << ", \"hits\": [";
         for (size_t i = 0; i < res->hits.size(); ++i) {
             if (i > 0) out << ", ";

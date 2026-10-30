@@ -118,6 +118,15 @@ assert_true(indexed_count >= 2, "add_paths must index README.md and durable-memo
 let file_hits = file_idx.search_text("ONNX and FAISS vector search", 2);
 assert_true(file_hits.len() == 2, "search_text on indexed files must return 2 hits");
 assert_true(str_len(file_hits.at(0).path()) > 0, "file hit must record source file path");
+assert_true(file_hits.at(0).document().ext() == ".md", "Document.ext() must return .md");
+assert_true(file_hits.at(0).document().size() > 10, "Document.size() must be > 10");
+
+# 6. Built-in common filter methods on FaissIndex
+file_idx.filter_ext(".md").filter_path_prefix("README").filter_text_contains("lmsearch");
+let filtered_hits = file_idx.search_text("ONNX and FAISS vector search", 5);
+assert_true(filtered_hits.len() == 1, "filter_path_prefix(README) must narrow results to README.md");
+assert_true(filtered_hits.at(0).document().filename() == "README.md", "Document.filename() must be README.md");
+file_idx.clear_rules();
 
 report("status", "all_assertions_passed");
 end _lmcode_
