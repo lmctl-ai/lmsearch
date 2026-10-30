@@ -1,0 +1,206 @@
+# dogfood_box_cleanup.lms
+# Dogfooding lmsearch + _lmcode_ callbacks (@file_filter, @filter, @rerank)
+# to audit the current box in DRY-RUN ONLY mode (no actual deletions):
+#   1. Uses git_is_worktree(), git_worktree_branch(), git_is_merged(), and git_is_clean()
+#      inside _lmcode_ callbacks to identify git worktree branches already merged into main.
+#   2. Audits redundant scrubbed copies, build artifacts, and caches to compute total reclaimable disk space.
+
+program = _lmcode_ schema="schema/lmsearch.dsl.json";
+
+@file_filter
+fn classify_box_dir(doc: Document) -> bool implements FileFilter {
+    let p = doc.path();
+    let mb = doc.get_number("size_mb");
+    let is_wt = git_is_worktree(p);
+    let branch = git_worktree_branch(p);
+    let merged = false;
+    let clean = false;
+    let category = "other";
+    let status = "KEEP";
+
+    if (is_wt) {
+        merged = git_is_merged(p, "main");
+        clean = git_is_clean(p);
+        category = "git-worktree";
+        if (merged && clean) {
+            status = "DRYRUN_DELETE_MERGED_WORKTREE";
+        } else {
+            if (merged && !clean) {
+                status = "KEEP_MERGED_BUT_DIRTY";
+            } else {
+                status = "KEEP_UNMERGED_WORKTREE";
+            }
+        }
+    } else {
+        if (str_starts_with(p, "/home/ubuntu/repos/scrubbed/")) {
+            category = "scrubbed-copy";
+            status = "DRYRUN_DELETE_SCRUBBED_COPY";
+        }
+        if (str_starts_with(p, "/home/ubuntu/.cache/") || str_starts_with(p, "/home/ubuntu/.npm/")) {
+            category = "cache";
+            status = "DRYRUN_DELETE_CACHE";
+        }
+        if (str_starts_with(p, "/home/ubuntu/lmvideo-build") || str_starts_with(p, "/home/ubuntu/localci-scratch") || p == "/tmp") {
+            category = "build-temp";
+            status = "DRYRUN_DELETE_BUILD_TEMP";
+        }
+    }
+
+    let wt_str = "no";
+    if (is_wt) {
+        wt_str = "yes";
+    }
+    let merged_str = "no";
+    if (merged) {
+        merged_str = "yes";
+    }
+    let clean_str = "no";
+    if (clean) {
+        clean_str = "yes";
+    }
+
+    doc.field("category", category)
+       .field("is_worktree", wt_str)
+       .field("branch", branch)
+       .field("merged", merged_str)
+       .field("clean", clean_str)
+       .field("dryrun_action", status);
+
+    doc.set_text(
+        status + " | category=" + category +
+        " | path=" + p +
+        " | branch=" + branch +
+        " | worktree=" + wt_str +
+        " | merged=" + merged_str +
+        " | clean=" + clean_str +
+        " | size_mb=" + str(mb) + "MB"
+    );
+    return true;
+}
+
+@filter
+fn merged_clean_worktree_callback(id: int, doc: Document) -> bool implements VectorFilter {
+    let p = doc.path();
+    let ok = false;
+    if (id > 0 && git_is_worktree(p)) {
+        if (git_is_merged(p, "main") && git_is_clean(p)) {
+            ok = true;
+        }
+    }
+    return ok;
+}
+
+@filter
+fn unmerged_or_dirty_worktree_callback(id: int, doc: Document) -> bool implements VectorFilter {
+    let p = doc.path();
+    let keep = false;
+    if (id > 0 && git_is_worktree(p)) {
+        if (!git_is_merged(p, "main") || !git_is_clean(p)) {
+            keep = true;
+        }
+    }
+    return keep;
+}
+
+@filter
+fn all_reclaimable_callback(id: int, doc: Document) -> bool implements VectorFilter {
+    let reclaim = false;
+    if (id > 0 && doc.has("dryrun_action")) {
+        reclaim = str_starts_with(doc.get("dryrun_action"), "DRYRUN_DELETE");
+    }
+    return reclaim;
+}
+
+@rerank
+fn rank_by_size_mb(hit: SearchHit, query: string) -> float implements Reranker {
+    let d = hit.document();
+    let mb = d.get_number("size_mb");
+    return float(mb) + hit.score() * 0.01;
+}
+
+let model = onnx_pretrained("all-MiniLM-L6-v2", 16);
+let idx = flat_index(16, Metric.COSINE)
+    .embedder(model)
+    .file_filter_rule("classify_box_dir");
+
+# 1. Scan /home/ubuntu/repos/lmctlhq subdirectories (contains 33+ interp-* and lmctl-mono-* worktrees)
+idx.add_subdirs("/home/ubuntu/repos/lmctlhq");
+
+# 2. Scan other git worktrees on the box
+idx.add_dir_entry("/home/ubuntu/lmctl-mono-test-release");
+idx.add_dir_entry("/home/ubuntu/repos/globalweb/mailbox-cert");
+idx.add_dir_entry("/home/ubuntu/repos/lmtrace-bash");
+idx.add_dir_entry("/home/ubuntu/repos/lmtrace-langs");
+
+# 3. Scan other major reclaimable directories on the box (scrubbed copies, caches, build/tmp)
+idx.add_subdirs("/home/ubuntu/repos/scrubbed");
+idx.add_dir_entry("/home/ubuntu/lmvideo-build/luna-81b0deb");
+idx.add_dir_entry("/home/ubuntu/localci-scratch");
+idx.add_dir_entry("/home/ubuntu/.npm/_cacache");
+idx.add_dir_entry("/home/ubuntu/.cache/go-build");
+idx.add_dir_entry("/home/ubuntu/.cache/lmlucene");
+idx.add_dir_entry("/home/ubuntu/.cache/ms-playwright");
+idx.add_dir_entry("/home/ubuntu/.cache/interp-artifacts");
+idx.add_dir_entry("/home/ubuntu/.cache/interp-node-compile");
+idx.add_dir_entry("/home/ubuntu/.cache/puppeteer");
+idx.add_dir_entry("/home/ubuntu/.cache/pip");
+idx.add_dir_entry("/home/ubuntu/.cache/copilot");
+idx.add_dir_entry("/tmp", 17825792000);
+
+# Query 1: Use callback `merged_clean_worktree_callback` to find all git worktrees whose branch is ALREADY MERGED & clean
+idx.filter_rule("merged_clean_worktree_callback")
+   .rerank_rule("rank_by_size_mb");
+let merged_wt = idx.search_text("merged git worktree branch safe to delete", 50)
+    .emit("dryrun_deletable_merged_worktrees");
+
+let merged_wt_mb = 0;
+let i = 0;
+while (i < merged_wt.len()) {
+    merged_wt_mb = merged_wt_mb + merged_wt.at(i).document().get_number("size_mb");
+    i = i + 1;
+}
+
+# Query 2: Use callback `unmerged_or_dirty_worktree_callback` to list worktrees that are NOT merged (or dirty) and must be kept
+idx.filter_rule("unmerged_or_dirty_worktree_callback")
+   .rerank_rule("rank_by_size_mb");
+let kept_wt = idx.search_text("unmerged or dirty git worktree branch keep", 50)
+    .emit("dryrun_kept_worktrees");
+
+let kept_wt_mb = 0;
+let j = 0;
+while (j < kept_wt.len()) {
+    kept_wt_mb = kept_wt_mb + kept_wt.at(j).document().get_number("size_mb");
+    j = j + 1;
+}
+
+# Query 3: Use callback `all_reclaimable_callback` to compute total reclaimable disk space across the box
+idx.filter_rule("all_reclaimable_callback")
+   .rerank_rule("rank_by_size_mb");
+let all_reclaim = idx.search_text("DRYRUN_DELETE reclaimable disk space", 100)
+    .emit("dryrun_all_reclaimable_dirs");
+
+let total_reclaim_mb = 0;
+let k = 0;
+while (k < all_reclaim.len()) {
+    total_reclaim_mb = total_reclaim_mb + all_reclaim.at(k).document().get_number("size_mb");
+    k = k + 1;
+}
+
+report("mode", "DRYRUN_ONLY_NO_FILES_DELETED");
+report("merged_clean_worktrees_count", str(merged_wt.len()));
+report("merged_clean_worktrees_reclaim_mb", str(merged_wt_mb));
+report("kept_unmerged_or_dirty_worktrees_count", str(kept_wt.len()));
+report("kept_unmerged_or_dirty_worktrees_mb", str(kept_wt_mb));
+report("total_reclaimable_candidates_count", str(all_reclaim.len()));
+report("total_reclaimable_mb", str(total_reclaim_mb));
+end _lmcode_
+
+mkdir("build");
+savedsl(program, "build/dogfood_box_cleanup.dslb");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = system ${[bin]} --dsl build/dogfood_box_cleanup.dslb;
+if (r.code != 0) {
+    print(r.stderr);
+}
+assert(r.code == 0, "dogfood_box_cleanup.lms failed: " + r.stdout);
+print(r.stdout);

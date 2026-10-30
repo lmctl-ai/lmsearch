@@ -762,6 +762,55 @@
         ],
         "returns": "OnnxModel"
       }
+    ],
+    "git_is_worktree": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "bool"
+      }
+    ],
+    "git_is_repo": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "bool"
+      }
+    ],
+    "git_worktree_branch": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "string"
+      }
+    ],
+    "git_is_merged": [
+      {
+        "params": [
+          "string",
+          "string"
+        ],
+        "returns": "bool"
+      }
+    ],
+    "git_is_clean": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "bool"
+      }
+    ],
+    "dir_size_mb": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "int"
+      }
     ]
   },
   "types": {
@@ -1393,6 +1442,29 @@
               "string"
             ],
             "returns": "self"
+          }
+        ],
+        "add_dir_entry": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "int"
+          },
+          {
+            "params": [
+              "string",
+              "int"
+            ],
+            "returns": "int"
+          }
+        ],
+        "add_subdirs": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "int"
           }
         ],
         "remove_id": [

@@ -183,6 +183,8 @@ struct FaissIndex {
     int64_t add_file_path(const std::string& file_path);
     int64_t add_directory_path(const std::string& dir_path, const std::string& ext_filter = "");
     int64_t add_path_list(const std::vector<std::string>& paths, const std::string& ext_filter = "");
+    int64_t add_dir_entry(const std::string& dir_path, int64_t size_bytes_override = -1);
+    int64_t add_subdirs(const std::string& parent_dir);
     int64_t remove_by_id(int64_t id);
     std::vector<double> reconstruct_vec(int64_t id) const;
     std::vector<double> quantize_reconstruct(const Entry& e) const;
@@ -244,5 +246,12 @@ struct Host {
 
 int64_t parse_memory_bytes(const std::string& spec);
 std::string format_memory_bytes(int64_t bytes);
+
+bool git_is_worktree(const std::string& dir_path);
+bool git_is_repo(const std::string& dir_path);
+std::string git_worktree_branch(const std::string& dir_path);
+bool git_is_merged(const std::string& dir_path, const std::string& target_branch);
+bool git_is_clean(const std::string& dir_path);
+int64_t compute_dir_size_bytes(const std::string& dir_path);
 
 } // namespace lmsearch

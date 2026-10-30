@@ -128,6 +128,14 @@ assert_true(filtered_hits.len() == 1, "filter_path_prefix(README) must narrow re
 assert_true(filtered_hits.at(0).document().filename() == "README.md", "Document.filename() must be README.md");
 file_idx.clear_rules();
 
+# 7. Directory and git worktree introspection primitives
+assert_true(git_is_repo("."), "current repository root must be detected by git_is_repo");
+assert_true(!git_is_worktree("durable-memory"), "durable-memory directory is not a git worktree");
+assert_true(str_len(git_worktree_branch(".")) > 0, "git_worktree_branch(.) must return non-empty branch or HEAD");
+assert_true(dir_size_mb(".") >= 0, "dir_size_mb(.) must return non-negative size");
+let dir_added = file_idx.add_dir_entry("durable-memory");
+assert_true(dir_added == 1, "add_dir_entry must index directory entry");
+
 report("status", "all_assertions_passed");
 end _lmcode_
 

@@ -1221,6 +1221,258 @@ int64_t FaissIndex::add_path_list(const std::vector<std::string>& paths, const s
     return count;
 }
 
+static std::string trim_ws(std::string s) {
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
+    return s;
+}
+
+static std::filesystem::path resolve_gitdir_file(const std::filesystem::path& dir_path) {
+    std::error_code ec;
+    std::filesystem::path dot_git = dir_path / ".git";
+    if (std::filesystem::is_regular_file(dot_git, ec)) {
+        std::ifstream in(dot_git);
+        std::string line;
+        if (std::getline(in, line)) {
+            line = trim_ws(line);
+            const std::string prefix = "gitdir:";
+            if (line.compare(0, prefix.size(), prefix) == 0) {
+                std::string target = trim_ws(line.substr(prefix.size()));
+                std::filesystem::path gp = std::filesystem::u8path(target);
+                if (gp.is_relative()) gp = dir_path / gp;
+                return gp;
+            }
+        }
+    } else if (std::filesystem::is_directory(dot_git, ec)) {
+        return dot_git;
+    }
+    return {};
+}
+
+static std::string run_git_capture(const std::string& args, int* out_rc = nullptr) {
+#ifdef _WIN32
+    std::string cmd = "git " + args + " 2>NUL";
+    FILE* pipe = _popen(cmd.c_str(), "r");
+#else
+    std::string cmd = "git " + args + " 2>/dev/null";
+    FILE* pipe = popen(cmd.c_str(), "r");
+#endif
+    if (!pipe) {
+        if (out_rc) *out_rc = -1;
+        return "";
+    }
+    std::string output;
+    char buf[256];
+    while (std::fgets(buf, sizeof(buf), pipe) != nullptr) {
+        output += buf;
+    }
+#ifdef _WIN32
+    int rc = _pclose(pipe);
+#else
+    int rc = pclose(pipe);
+#endif
+    if (out_rc) *out_rc = rc;
+    return trim_ws(output);
+}
+
+static std::string shell_quote_arg(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '"' || c == '\\') out.push_back('\\');
+        out.push_back(c);
+    }
+    out.push_back('"');
+    return out;
+}
+
+bool git_is_worktree(const std::string& dir_path) {
+    std::error_code ec;
+    std::filesystem::path dot_git = std::filesystem::u8path(dir_path) / ".git";
+    if (!std::filesystem::is_regular_file(dot_git, ec)) return false;
+    std::ifstream in(dot_git);
+    std::string line;
+    if (!std::getline(in, line)) return false;
+    line = trim_ws(line);
+    return line.compare(0, 7, "gitdir:") == 0;
+}
+
+bool git_is_repo(const std::string& dir_path) {
+    std::error_code ec;
+    std::filesystem::path dot_git = std::filesystem::u8path(dir_path) / ".git";
+    return std::filesystem::is_directory(dot_git, ec) || git_is_worktree(dir_path);
+}
+
+std::string git_worktree_branch(const std::string& dir_path) {
+    std::filesystem::path gp = resolve_gitdir_file(std::filesystem::u8path(dir_path));
+    if (!gp.empty()) {
+        std::ifstream head_in(gp / "HEAD");
+        std::string line;
+        if (std::getline(head_in, line)) {
+            line = trim_ws(line);
+            const std::string ref_prefix = "ref: refs/heads/";
+            if (line.compare(0, ref_prefix.size(), ref_prefix) == 0) {
+                return line.substr(ref_prefix.size());
+            }
+            if (!line.empty()) return "HEAD";
+        }
+    }
+    if (!git_is_repo(dir_path)) return "";
+    int rc = 0;
+    std::string b = run_git_capture("-C " + shell_quote_arg(dir_path) + " rev-parse --abbrev-ref HEAD", &rc);
+    return rc == 0 ? b : "";
+}
+
+bool git_is_merged(const std::string& dir_path, const std::string& target_branch) {
+    if (!git_is_repo(dir_path)) return false;
+    std::filesystem::path gp = resolve_gitdir_file(std::filesystem::u8path(dir_path));
+    std::error_code ec;
+    if (!gp.empty() && std::filesystem::exists(gp / "MERGED", ec)) {
+        return true;
+    }
+    std::string qdir = shell_quote_arg(dir_path);
+    int rc = 0;
+    std::string head_sha = run_git_capture("-C " + qdir + " rev-parse --verify HEAD", &rc);
+    if (rc != 0 || head_sha.empty()) return false;
+
+    std::vector<std::string> targets;
+    if (!target_branch.empty()) {
+        targets.push_back(target_branch);
+        if (target_branch.find('/') == std::string::npos) {
+            targets.push_back("origin/" + target_branch);
+        }
+    }
+    if (target_branch == "main") {
+        targets.push_back("master");
+        targets.push_back("origin/master");
+    }
+    for (const auto& t : targets) {
+        int mrc = -1;
+        run_git_capture("-C " + qdir + " merge-base --is-ancestor HEAD " + shell_quote_arg(t), &mrc);
+        if (mrc == 0) return true;
+    }
+    return false;
+}
+
+bool git_is_clean(const std::string& dir_path) {
+    if (!git_is_repo(dir_path)) return false;
+    int rc = -1;
+    std::string out = run_git_capture("-C " + shell_quote_arg(dir_path) + " status --porcelain", &rc);
+    return rc == 0 && out.empty();
+}
+
+int64_t compute_dir_size_bytes(const std::string& dir_path) {
+    std::error_code ec;
+    std::filesystem::path dpath = std::filesystem::u8path(dir_path);
+    if (!std::filesystem::exists(dpath, ec)) return 0;
+    if (std::filesystem::is_regular_file(dpath, ec)) {
+        return static_cast<int64_t>(std::filesystem::file_size(dpath, ec));
+    }
+    int64_t total = 0;
+    auto opts = std::filesystem::directory_options::skip_permission_denied;
+    for (auto it = std::filesystem::recursive_directory_iterator(dpath, opts, ec);
+         it != std::filesystem::recursive_directory_iterator();
+         it.increment(ec)) {
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        std::error_code fec;
+        if (!it->is_symlink(fec) && it->is_regular_file(fec)) {
+            auto sz = it->file_size(fec);
+            if (!fec) total += static_cast<int64_t>(sz);
+        }
+    }
+    return total;
+}
+
+int64_t FaissIndex::add_dir_entry(const std::string& dir_path, int64_t size_bytes_override) {
+    std::error_code ec;
+    std::filesystem::path dpath = std::filesystem::u8path(dir_path);
+    if (!std::filesystem::exists(dpath, ec) || !std::filesystem::is_directory(dpath, ec)) {
+        return 0;
+    }
+    std::string norm_path = dpath.generic_string();
+    std::string dname = dpath.filename().generic_string();
+    if (dname.empty()) dname = norm_path;
+
+    int64_t sz_bytes = (size_bytes_override >= 0) ? size_bytes_override : compute_dir_size_bytes(norm_path);
+    int64_t sz_mb = sz_bytes / (1024 * 1024);
+
+    if (!embedder) {
+        if (!host) throw dslvm::Error("add_dir_entry: FaissIndex has no Host");
+        OnnxModel loaded = OnnxModel::load_or_download_cached(host, "all-MiniLM-L6-v2", dim);
+        OnnxModel* m = host->alloc_model();
+        *m = std::move(loaded);
+        m->host = host;
+        embedder = m;
+    }
+
+    int64_t next_id = 1;
+    for (const auto& e : entries) {
+        if (e.id >= next_id) next_id = e.id + 1;
+    }
+
+    bool is_wt = git_is_worktree(norm_path);
+    bool is_rp = git_is_repo(norm_path);
+    std::string branch = is_rp ? git_worktree_branch(norm_path) : "";
+    std::string summary = dname + " " + norm_path +
+        (is_wt ? (" git worktree branch " + branch) : (is_rp ? (" git repo branch " + branch) : " directory")) +
+        " size_mb=" + std::to_string(sz_mb);
+
+    Document* doc = host->alloc_doc(next_id, summary);
+    doc->fields["path"] = norm_path;
+    doc->fields["filename"] = dname;
+    doc->fields["ext"] = ".dir";
+    doc->fields["is_worktree"] = is_wt ? "true" : "false";
+    doc->fields["is_repo"] = is_rp ? "true" : "false";
+    if (!branch.empty()) doc->fields["branch"] = branch;
+    doc->numbers["size"] = sz_bytes;
+    doc->numbers["size_mb"] = sz_mb;
+
+    if (!filter_opts.matches_doc(doc)) {
+        return 0;
+    }
+
+    if (!file_filter_rule.empty() && host) {
+        dslvm::Value allow = host->invoke_rule(
+            file_filter_rule,
+            "interface FileFilter(Document) -> bool",
+            {dslvm::Value::object("Document", doc)});
+        if (!allow.b) return 0;
+    }
+
+    doc->vec = embedder->run_text(doc->text);
+    add_vector(doc->id, doc->vec, doc);
+    return 1;
+}
+
+int64_t FaissIndex::add_subdirs(const std::string& parent_dir) {
+    std::error_code ec;
+    std::filesystem::path ppath = std::filesystem::u8path(parent_dir);
+    if (!std::filesystem::exists(ppath, ec) || !std::filesystem::is_directory(ppath, ec)) {
+        return 0;
+    }
+    std::vector<std::filesystem::path> dirs;
+    for (auto it = std::filesystem::directory_iterator(ppath, ec);
+         it != std::filesystem::directory_iterator();
+         it.increment(ec)) {
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        std::error_code dec;
+        if (!it->is_symlink(dec) && it->is_directory(dec)) {
+            dirs.push_back(it->path());
+        }
+    }
+    std::sort(dirs.begin(), dirs.end());
+    int64_t count = 0;
+    for (const auto& d : dirs) {
+        count += add_dir_entry(d.generic_string());
+    }
+    return count;
+}
+
 std::vector<double> FaissIndex::quantize_reconstruct(const Entry& e) const {
     if (m_pq <= 0 || pq_centroids.empty() || e.pq_codes.size() != static_cast<size_t>(m_pq)) {
         return e.norm_vec;

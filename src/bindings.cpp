@@ -382,6 +382,25 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         return Value::none();
     });
 
+    reg.function("git_is_worktree", {"string"}, "bool", [](Args& a) {
+        return Value::boolean(git_is_worktree(a[0].s));
+    });
+    reg.function("git_is_repo", {"string"}, "bool", [](Args& a) {
+        return Value::boolean(git_is_repo(a[0].s));
+    });
+    reg.function("git_worktree_branch", {"string"}, "string", [](Args& a) {
+        return Value::string(git_worktree_branch(a[0].s));
+    });
+    reg.function("git_is_merged", {"string", "string"}, "bool", [](Args& a) {
+        return Value::boolean(git_is_merged(a[0].s, a[1].s));
+    });
+    reg.function("git_is_clean", {"string"}, "bool", [](Args& a) {
+        return Value::boolean(git_is_clean(a[0].s));
+    });
+    reg.function("dir_size_mb", {"string"}, "int", [](Args& a) {
+        return Value::integer(compute_dir_size_bytes(a[0].s) / (1024 * 1024));
+    });
+
     // OnnxModel methods
     reg.method("OnnxModel", "opset", {}, "int", [](void* self, Args&) {
         return Value::integer(model_ref(self).opset);
@@ -784,6 +803,15 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     reg.method("FaissIndex", "add_paths", {"StrList"}, "int", [](void* self, Args& a) {
         const auto& paths = static_cast<dslvm::stdlib::StrList*>(a[0].obj)->items;
         return Value::integer(index_ref(self).add_path_list(paths, ""));
+    });
+    reg.method("FaissIndex", "add_dir_entry", {"string"}, "int", [](void* self, Args& a) {
+        return Value::integer(index_ref(self).add_dir_entry(a[0].s, -1));
+    });
+    reg.method("FaissIndex", "add_dir_entry", {"string", "int"}, "int", [](void* self, Args& a) {
+        return Value::integer(index_ref(self).add_dir_entry(a[0].s, a[1].i));
+    });
+    reg.method("FaissIndex", "add_subdirs", {"string"}, "int", [](void* self, Args& a) {
+        return Value::integer(index_ref(self).add_subdirs(a[0].s));
     });
     reg.method("FaissIndex", "remove_id", {"int"}, "int", [](void* self, Args& a) {
         return Value::integer(index_ref(self).remove_by_id(a[0].i));
