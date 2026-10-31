@@ -167,7 +167,7 @@ end _lmcode_
 mkdir("build");
 savedsl(program, "build/test.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --dsl build/test.dslb;
+r = system ${[bin]} --lmcode build/test.dslb;
 if (r.code != 0) {
     print(r.stderr);
 }

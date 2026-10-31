@@ -42,7 +42,7 @@ end _lmcode_
 mkdir("build");
 savedsl(program, "build/file_and_dir_search.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --dsl build/file_and_dir_search.dslb;
+r = system ${[bin]} --lmcode build/file_and_dir_search.dslb;
 if (r.code != 0) {
     print(r.stderr);
 }

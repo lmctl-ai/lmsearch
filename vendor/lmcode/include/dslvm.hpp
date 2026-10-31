@@ -10,7 +10,7 @@
 //   dslvm::Registry                      the implementation of the schema, declared with its types: function(name, {param types}, return
 //                                        type, fn), method(type, name, {param types}, return type, fn), context(name, type); entries are
 //                                        keyed by canonical signature, distinct parameter tuples overload a name, and duplicate parameter
-//                                        tuples are refused; signatures() lists the canonical strings `lmscript --dsl-signatures SCHEMA` prints, so a
+//                                        tuples are refused; signatures() lists the canonical strings `lmscript --lmcode-signatures SCHEMA` prints, so a
 //                                        host test diffs registry and schema (a consistency check between two sources of truth,
 //                                        not a run-time defense: the VM checks nothing at call time)
 //   dslvm::Context                       the live objects of one run: set(name, pointer)
@@ -183,6 +183,7 @@ inline std::string signature_text(const Signature& s) { std::string out = "("; f
 namespace stdlib { struct Collections; struct StdRuntime; }
 enum class StdMode { Enabled, Disabled };
 class Registry;
+class ResultSink;
 inline Registry& register_std(Registry&);
 
 class Registry {
@@ -193,6 +194,8 @@ class Registry {
   bool has_std() const { return std_initialized_; }
   stdlib::Collections& std_collections() const;
   void set_std_output(std::ostream* sink);
+  // Host-owned invocation sink; never reset by a per-region VM run.
+  void set_result_sink(ResultSink* sink);
   std::ostream& std_output() const { return *std_output_; }
   std::vector<std::string> std_signatures() const { return std_signatures_; }
   std::vector<std::string> host_signatures() const {
@@ -271,7 +274,7 @@ class Registry {
     pending_budget_exceeded_ = false;
     return std::move(pending_plan_detail_);
   }
-  // Canonical strings, sorted: exactly what `lmscript --dsl-signatures SCHEMA` prints for the schema this registry implements.
+  // Canonical strings, sorted: exactly what `lmscript --lmcode-signatures SCHEMA` prints for the schema this registry implements.
   std::vector<std::string> signatures() const {
     std::vector<std::string> out;
     for (auto& c : context_) out.push_back("context " + c.first + ": " + c.second);

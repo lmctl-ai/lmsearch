@@ -1,0 +1,122 @@
+{
+  "functions": {
+    "math_abs": [
+      {
+        "params": [
+          "int"
+        ],
+        "returns": "int"
+      },
+      {
+        "params": [
+          "float"
+        ],
+        "returns": "float"
+      }
+    ],
+    "math_min": [
+      {
+        "params": [
+          "int",
+          "int"
+        ],
+        "returns": "int"
+      },
+      {
+        "params": [
+          "float",
+          "float"
+        ],
+        "returns": "float"
+      }
+    ],
+    "math_max": [
+      {
+        "params": [
+          "int",
+          "int"
+        ],
+        "returns": "int"
+      },
+      {
+        "params": [
+          "float",
+          "float"
+        ],
+        "returns": "float"
+      }
+    ],
+    "math_floor": [
+      {
+        "params": [
+          "int"
+        ],
+        "returns": "int"
+      },
+      {
+        "params": [
+          "float"
+        ],
+        "returns": "float"
+      }
+    ],
+    "math_ceil": [
+      {
+        "params": [
+          "int"
+        ],
+        "returns": "int"
+      },
+      {
+        "params": [
+          "float"
+        ],
+        "returns": "float"
+      }
+    ],
+    "math_round": [
+      {
+        "params": [
+          "int"
+        ],
+        "returns": "int"
+      },
+      {
+        "params": [
+          "float"
+        ],
+        "returns": "float"
+      }
+    ],
+    "math_pow": [
+      {
+        "params": [
+          "int",
+          "int"
+        ],
+        "returns": "int"
+      },
+      {
+        "params": [
+          "float",
+          "float"
+        ],
+        "returns": "float"
+      }
+    ],
+    "math_sqrt": [
+      {
+        "params": [
+          "int"
+        ],
+        "returns": "int"
+      },
+      {
+        "params": [
+          "float"
+        ],
+        "returns": "float"
+      }
+    ]
+  }
+}

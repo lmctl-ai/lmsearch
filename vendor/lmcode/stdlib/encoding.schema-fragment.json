@@ -1,0 +1,36 @@
+{
+  "functions": {
+    "str_base64_encode": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "string"
+      }
+    ],
+    "str_base64_decode": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "string"
+      }
+    ],
+    "str_hex_encode": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "string"
+      }
+    ],
+    "str_hex_decode": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "string"
+      }
+    ]
+  }
+}

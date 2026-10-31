@@ -1,0 +1,101 @@
+{
+  "dsl.schema": 2,
+  "name": "lmcode_std_json_v2",
+  "functions": {
+    "json_parse": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "Json"
+      }
+    ],
+    "template_render": [
+      {
+        "params": [
+          "string",
+          "Json"
+        ],
+        "returns": "string"
+      }
+    ]
+  },
+  "types": {
+    "Json": {
+      "methods": {
+        "kind": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "Json"
+          }
+        ],
+        "get": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "Json"
+          }
+        ],
+        "has": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "keys": [
+          {
+            "params": [],
+            "returns": "StrList"
+          }
+        ],
+        "as_string": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "as_int": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "as_float": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "as_bool": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "to_json": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ]
+      }
+    }
+  }
+}

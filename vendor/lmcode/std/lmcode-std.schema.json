@@ -112,6 +112,38 @@
         "returns": "Json"
       }
     ],
+    "lmcode_return_null": [
+      {"params": [], "returns": "void"}
+    ],
+    "lmcode_return_put": [
+      {"params": ["string", "bool"], "returns": "void"},
+      {"params": ["string", "float"], "returns": "void"},
+      {"params": ["string", "FloatList"], "returns": "void"},
+      {"params": ["string", "FloatMap"], "returns": "void"},
+      {"params": ["string", "int"], "returns": "void"},
+      {"params": ["string", "IntList"], "returns": "void"},
+      {"params": ["string", "IntMap"], "returns": "void"},
+      {"params": ["string", "Json"], "returns": "void"},
+      {"params": ["string", "StrList"], "returns": "void"},
+      {"params": ["string", "StrMap"], "returns": "void"},
+      {"params": ["string", "string"], "returns": "void"}
+    ],
+    "lmcode_return_put_null": [
+      {"params": ["string"], "returns": "void"}
+    ],
+    "lmcode_return_set": [
+      {"params": ["bool"], "returns": "void"},
+      {"params": ["float"], "returns": "void"},
+      {"params": ["FloatList"], "returns": "void"},
+      {"params": ["FloatMap"], "returns": "void"},
+      {"params": ["int"], "returns": "void"},
+      {"params": ["IntList"], "returns": "void"},
+      {"params": ["IntMap"], "returns": "void"},
+      {"params": ["Json"], "returns": "void"},
+      {"params": ["StrList"], "returns": "void"},
+      {"params": ["StrMap"], "returns": "void"},
+      {"params": ["string"], "returns": "void"}
+    ],
     "math_abs": [
       {
         "params": [

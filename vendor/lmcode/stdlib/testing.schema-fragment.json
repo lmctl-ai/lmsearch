@@ -1,0 +1,16 @@
+{
+  "functions": {
+    "print": [
+      {
+        "params": ["string"],
+        "returns": "void"
+      }
+    ],
+    "assert_close": [
+      {
+        "params": ["float", "float", "float"],
+        "returns": "void"
+      }
+    ]
+  }
+}

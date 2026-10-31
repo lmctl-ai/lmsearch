@@ -1,18 +1,14 @@
 #pragma once
+// Finish the default aggregator only after this group's types are complete.
+// Result conversion needs IntMap/FloatMap even on a standalone group include.
 #ifndef DSLVM_STD_BUILDING
 #define DSLVM_STD_DEFER
-#endif
-namespace dslvm {
-class Registry;
-namespace stdlib {
-struct Collections;
-Registry &register_containers(Registry &, Collections &);
-} // namespace stdlib
-} // namespace dslvm
-#include "collections.hpp"
-#ifndef DSLVM_STD_BUILDING
+#include "dslvm.hpp"
 #undef DSLVM_STD_DEFER
+#define DSLVM_STD_BUILDING
+#define DSLVM_CONTAINERS_FINISH_STD
 #endif
+#include "collections.hpp"
 #include <cmath>
 #include <cstdint>
 #include <deque>
@@ -314,3 +310,9 @@ inline Registry &register_containers(Registry &r, Collections &a) {
   return r;
 }
 } // namespace dslvm::stdlib
+
+#ifdef DSLVM_CONTAINERS_FINISH_STD
+#undef DSLVM_CONTAINERS_FINISH_STD
+#undef DSLVM_STD_BUILDING
+#include "std.hpp"
+#endif

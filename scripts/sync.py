@@ -27,7 +27,7 @@ def hashes(directory):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else 'check'
     if mode not in ('sdk', 'check'):
-        sys.exit('usage: sync.py sdk [SDK_DIR] | check')
+        sys.exit('usage: sync.py sdk [SDK_DIR] [REF] | check')
     if mode == 'check':
         directory = ROOT / 'vendor/lmcode'
         lock = json.loads((ROOT / 'sdk.lock').read_text(encoding='utf-8'))
@@ -36,7 +36,8 @@ def main():
         print('PASS SDK lock')
         return
     source = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else ROOT.parent / 'lmcode-cpp'
-    commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
+    ref = sys.argv[3] if len(sys.argv) > 3 else 'HEAD'
+    commit = subprocess.check_output(['git', '-C', str(source), 'rev-parse', ref], text=True).strip()
     paths = ['include', 'stdlib', 'std', 'LICENSE']
     dirty = subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain', '--', *paths], text=True)
     if dirty:
@@ -45,16 +46,12 @@ def main():
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True)
-    selected = [
-        source / 'include/dslvm.hpp',
-        source / 'std/lmcode-std.schema.json',
-        source / 'LICENSE',
-        *sorted((source / 'stdlib').glob('*.hpp')),
-    ]
+    selected = subprocess.check_output(['git', '-C', str(source), 'ls-tree', '-r', '--name-only', commit,
+                                        '--', 'include/dslvm.hpp', 'stdlib', 'std/lmcode-std.schema.json', 'LICENSE'], text=True).splitlines()
     for path in selected:
-        target = destination / path.relative_to(source)
+        target = destination / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, target)
+        target.write_bytes(subprocess.check_output(['git', '-C', str(source), 'show', commit + ':' + path]))
     (ROOT / 'sdk.lock').write_text(
         json.dumps({'repo': 'lmctl-ai/lmcode-cpp', 'commit': commit, 'sha256': hashes(destination)}, indent=2) + '\n',
         encoding='utf-8',

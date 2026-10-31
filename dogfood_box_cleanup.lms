@@ -198,7 +198,7 @@ end _lmcode_
 mkdir("build");
 savedsl(program, "build/dogfood_box_cleanup.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --dsl build/dogfood_box_cleanup.dslb;
+r = system ${[bin]} --lmcode build/dogfood_box_cleanup.dslb;
 if (r.code != 0) {
     print(r.stderr);
 }

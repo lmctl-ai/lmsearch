@@ -41,7 +41,7 @@ end _lmcode_
 mkdir("build");
 savedsl(program, "build/persistence_and_quantization.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --dsl build/persistence_and_quantization.dslb;
+r = system ${[bin]} --lmcode build/persistence_and_quantization.dslb;
 if (r.code != 0) {
     print(r.stderr);
 }

@@ -1,0 +1,659 @@
+{
+  "dsl.schema": 2,
+  "name": "lmcode_std_containers_v2",
+  "functions": {
+    "float_map": [
+      {
+        "params": [],
+        "returns": "FloatMap"
+      }
+    ],
+    "float_pq": [
+      {
+        "params": [],
+        "returns": "FloatPQ"
+      }
+    ],
+    "float_queue": [
+      {
+        "params": [],
+        "returns": "FloatQueue"
+      }
+    ],
+    "float_stack": [
+      {
+        "params": [],
+        "returns": "FloatStack"
+      }
+    ],
+    "int_map": [
+      {
+        "params": [],
+        "returns": "IntMap"
+      }
+    ],
+    "int_pq": [
+      {
+        "params": [],
+        "returns": "IntPQ"
+      }
+    ],
+    "int_queue": [
+      {
+        "params": [],
+        "returns": "IntQueue"
+      }
+    ],
+    "int_stack": [
+      {
+        "params": [],
+        "returns": "IntStack"
+      }
+    ],
+    "str_pq": [
+      {
+        "params": [],
+        "returns": "StrPQ"
+      }
+    ],
+    "str_queue": [
+      {
+        "params": [],
+        "returns": "StrQueue"
+      }
+    ],
+    "str_stack": [
+      {
+        "params": [],
+        "returns": "StrStack"
+      }
+    ]
+  },
+  "types": {
+    "FloatMap": {
+      "methods": {
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "has": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "get": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "float"
+          }
+        ],
+        "get_or": [
+          {
+            "params": [
+              "string",
+              "float"
+            ],
+            "returns": "float"
+          }
+        ],
+        "set": [
+          {
+            "params": [
+              "string",
+              "float"
+            ],
+            "returns": "FloatMap"
+          }
+        ],
+        "key_at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "string"
+          }
+        ],
+        "remove": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "FloatMap"
+          }
+        ],
+        "keys": [
+          {
+            "params": [],
+            "returns": "StrList"
+          }
+        ],
+        "values": [
+          {
+            "params": [],
+            "returns": "FloatList"
+          }
+        ]
+      }
+    },
+    "FloatPQ": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "float",
+              "float"
+            ],
+            "returns": "FloatPQ"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "FloatPQ"
+          }
+        ]
+      }
+    },
+    "FloatQueue": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "FloatQueue"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "FloatQueue"
+          }
+        ],
+        "at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ]
+      }
+    },
+    "FloatStack": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "FloatStack"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "float"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "FloatStack"
+          }
+        ],
+        "at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "float"
+          }
+        ]
+      }
+    },
+    "IntMap": {
+      "methods": {
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "has": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "get": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "int"
+          }
+        ],
+        "get_or": [
+          {
+            "params": [
+              "string",
+              "int"
+            ],
+            "returns": "int"
+          }
+        ],
+        "set": [
+          {
+            "params": [
+              "string",
+              "int"
+            ],
+            "returns": "IntMap"
+          }
+        ],
+        "key_at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "string"
+          }
+        ],
+        "remove": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "IntMap"
+          }
+        ],
+        "keys": [
+          {
+            "params": [],
+            "returns": "StrList"
+          }
+        ],
+        "values": [
+          {
+            "params": [],
+            "returns": "IntList"
+          }
+        ]
+      }
+    },
+    "IntPQ": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "int",
+              "float"
+            ],
+            "returns": "IntPQ"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "IntPQ"
+          }
+        ]
+      }
+    },
+    "IntQueue": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "IntQueue"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "IntQueue"
+          }
+        ],
+        "at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "int"
+          }
+        ]
+      }
+    },
+    "IntStack": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "IntStack"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "IntStack"
+          }
+        ],
+        "at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "int"
+          }
+        ]
+      }
+    },
+    "StrPQ": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "string",
+              "float"
+            ],
+            "returns": "StrPQ"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "StrPQ"
+          }
+        ]
+      }
+    },
+    "StrQueue": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "StrQueue"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "StrQueue"
+          }
+        ],
+        "at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "string"
+          }
+        ]
+      }
+    },
+    "StrStack": {
+      "methods": {
+        "push": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "StrStack"
+          }
+        ],
+        "pop": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "peek": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "len": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "empty": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "clear": [
+          {
+            "params": [],
+            "returns": "StrStack"
+          }
+        ],
+        "at": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "string"
+          }
+        ]
+      }
+    }
+  }
+}

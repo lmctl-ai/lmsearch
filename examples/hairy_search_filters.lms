@@ -133,7 +133,7 @@ end _lmcode_
 mkdir("build");
 savedsl(program, "build/hairy_search_filters.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --dsl build/hairy_search_filters.dslb;
+r = system ${[bin]} --lmcode build/hairy_search_filters.dslb;
 if (r.code != 0) {
     print(r.stderr);
 }

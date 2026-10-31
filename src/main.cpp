@@ -148,7 +148,7 @@ struct CliFilterConfig {
 
     bool parse_opt(const std::vector<std::string>& args, size_t& i) {
         const std::string& a = args[i];
-        if ((a == "--dsl" || a == "--lmcode") && i + 1 < args.size()) {
+        if ((a == "--lmcode") && i + 1 < args.size()) {
             dsl_path = args[++i];
             return true;
         } else if (a == "--config-rule" && i + 1 < args.size()) {
@@ -527,13 +527,13 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if ((args.size() == 1 && args[0] == "--dsl-schema") ||
-        (args.size() == 2 && args[0] == "--dsl-schema" && args[1] == "--json")) {
+    if ((args.size() == 1 && args[0] == "--lmcode-schema") ||
+        (args.size() == 2 && args[0] == "--lmcode-schema" && args[1] == "--json")) {
         std::cout << lmsearch::schema;
         return 0;
     }
 
-    if (args.size() == 1 && args[0] == "--dsl-signatures") {
+    if (args.size() == 1 && args[0] == "--lmcode-signatures") {
         for (const auto& sig : host.registry.signatures()) {
             std::cout << sig << "\n";
         }
@@ -546,7 +546,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if (args.size() == 2 && args[0] == "--dsl") {
+    if (args.size() == 2 && args[0] == "--lmcode") {
         return run_bytecode(host, args[1], false, false);
     }
 
@@ -571,7 +571,7 @@ int main(int argc, char** argv) {
                 readonly = true;
             } else if (a == "--json") {
                 // Output is always structured JSON envelope
-            } else if ((a == "--program" || a == "--dsl") && i + 1 < args.size()) {
+            } else if ((a == "--program" || a == "--lmcode") && i + 1 < args.size()) {
                 program_path = args[++i];
             } else if (a == "--input-json" && i + 1 < args.size()) {
                 program_path = extract_json_string_field(args[++i], "program");
@@ -601,5 +601,5 @@ int main(int argc, char** argv) {
         "cli",
         dslvm::Error(
             "CLI_USAGE",
-            "usage: lmsearch [--version | --schema [--json] | --dsl-schema [--json] | --dsl-signatures | --dsl <FILE> | index <PATHS...> --output <FILE> | search --index <FILE> --query <TEXT> | run --program <FILE> [--dryrun] [--readonly]]"));
+            "usage: lmsearch [--version | --schema [--json] | --lmcode-schema [--json] | --lmcode-signatures | --lmcode <FILE> | index <PATHS...> --output <FILE> | search --index <FILE> --query <TEXT> | run --program <FILE> [--dryrun] [--readonly]]"));
 }

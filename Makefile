@@ -1,5 +1,7 @@
 CXX ?= c++
 VERSION ?= 0.1.0
+SDK ?= ../lmcode-cpp
+SDK_REF ?= HEAD
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Werror -pedantic
 INCLUDES := -Isrc -Ibuild -Ivendor/lmcode/include -Ivendor/lmcode/stdlib -DLMSEARCH_VERSION=\"$(VERSION)\"
 BIN ?= build/lmsearch
@@ -32,7 +34,7 @@ with-upstream: $(SOURCES) $(HEADERS) $(SCHEMA_HEADER) $(FAISS_LIB) $(ONNX_LIB)
 	$(CXX) -std=c++20 -O2 -Wall -Wextra -fopenmp $(INCLUDES) $(UPSTREAM_INCLUDES) $(SOURCES) $(UPSTREAM_LIBS) -o build/lmsearch-upstream
 
 sync-sdk:
-	python3 scripts/sync.py sync
+	python3 scripts/sync.py sdk "$(SDK)" "$(SDK_REF)"
 
 check-sdk:
 	python3 scripts/sync.py check

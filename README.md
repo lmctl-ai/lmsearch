@@ -78,7 +78,7 @@ lmscript examples/persistence_and_quantization.lms
 ./build/lmsearch search \
     --index build/hairy_corpus.faiss \
     --query "faiss hnsw vector search" \
-    --dsl build/hairy_search_filters.dslb \
+    --lmcode build/hairy_search_filters.dslb \
     -k 5
 ```
 
@@ -86,8 +86,8 @@ lmscript examples/persistence_and_quantization.lms
 
 ```bash
 ./build/lmsearch --version
-./build/lmsearch --dsl-schema
-./build/lmsearch --dsl-signatures
+./build/lmsearch --lmcode-schema
+./build/lmsearch --lmcode-signatures
 ./build/lmsearch --schema --json
 ./build/lmsearch run --program program.dslb --dryrun
 ```

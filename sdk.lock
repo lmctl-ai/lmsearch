@@ -1,18 +1,29 @@
 {
   "repo": "lmctl-ai/lmcode-cpp",
-  "commit": "28d833c276b0184dce28c8469bddd8d35b7636ae",
+  "commit": "20325f7a13cbb8470af88ae3448bf0e04d40e507",
   "sha256": {
     "LICENSE": "949eb9b711d9b64ae472b87b94916e8427575a75d0d218f6c4cbccf8c48d46f3",
-    "include/dslvm.hpp": "ed4a34fc3a13883974171213498abcc76c93528f65795165d2221e91c568f7d6",
-    "std/lmcode-std.schema.json": "a530a09fe405c16569e39b1de2957f364999e85960c8543830cddb45009adb73",
+    "include/dslvm.hpp": "53b7ccf50dc4899d955a5ab4ec9881e4be04d36eb04de2622da2c7ff98c78791",
+    "std/lmcode-std.schema.json": "1defd1be67bf11cf1780f7d890059cd2ac6fd506a7b7fa578e31b5ef124aa221",
     "stdlib/collections.hpp": "272d2932b9f205da15fc4663d1d92319ef9bbf8aac2f9186055d0c3146cd7bd4",
-    "stdlib/containers.hpp": "b83ba55e2f165e82c31cfde3e48eaf32207d54eae341d4cb2b1100f2b93e113a",
+    "stdlib/collections.schema-fragment.json": "bf4a0cb3118250f009dd898eb7cf71c5e387ef9c9492947a4b42b6c7693c17e2",
+    "stdlib/containers.hpp": "7aca43a8704b8fc3717c735759cf618344b96910d86fca703ca0d1fe5f256d15",
+    "stdlib/containers.schema-fragment.json": "3b1f8964108eb2722f3f4aa6e1fddf144724b2b7dfd0bb4b9e0035494812aa9b",
     "stdlib/encoding.hpp": "b4612926ae2c9d5690f4cec219244ed6ae353b00368bfac6f8b056231bcb755a",
+    "stdlib/encoding.schema-fragment.json": "6506d97787d4ccd763dd4fa2d01dbe476eb952d4f486fa7212c42a3a31c05c78",
     "stdlib/file.hpp": "806b6a9800957dacd6b411d3d97dd3da18e65a764b91c387a283e21010852ce8",
+    "stdlib/file.schema-fragment.json": "01276878391218e1b38e4ee2be3befdaa8b6e74be937793386107d6ececd4ece",
     "stdlib/json.hpp": "17cb0473be2ea122f4e45095a368094210ccc8a938908fed53ca7dc5876678ec",
+    "stdlib/json.schema-fragment.json": "9c771759cdfc4b3b4f329e358a67428fe78c4ce40cb4a238c47defc45b0c1b61",
     "stdlib/math.hpp": "59e58728afa33b4d185edb9d4e7cec385e0a4b570fadacfaad14161b4de5cb84",
-    "stdlib/std.hpp": "b2b7ae63dd87b9bf8d99ec3ceae9909c71ff13ade70494dea9f407efabfc4a41",
+    "stdlib/math.schema-fragment.json": "f922a06b21de255cb75d00cebfc83bcd8619cab36472cf0fc8a0c393a3da86fd",
+    "stdlib/result.hpp": "868c28ebb740af4880897788b4cced1b92ed08d49fe87f542ed6b53e000b658e",
+    "stdlib/result.schema-fragment.json": "9a791727c60089de36c41bf54fa2ffee92b1f7d5735e922f93c791272acdb4a6",
+    "stdlib/result_json.hpp": "44695a2507f2eafdc38c2d94caac57a8ee4a76c1a51e2501975314eecdaffc16",
+    "stdlib/std.hpp": "a55e5d5ed50d38f2d5c17527e4b9dca37c5a86592dadb8be752ce5afe93f1e93",
     "stdlib/string.hpp": "a2849e7cb4fdeaa762af50402eef2cadc689a4094ba55c4ebe9e92092bfba0dc",
-    "stdlib/testing.hpp": "33863d03a8f8f16c128ca2611c429f57fce40b566e06533c5f0a8d54f72055da"
+    "stdlib/string.schema-fragment.json": "66b27978299dfa0680807792136ba5c03c4c05f0f33ca1a44762cab98dbc7363",
+    "stdlib/testing.hpp": "33863d03a8f8f16c128ca2611c429f57fce40b566e06533c5f0a8d54f72055da",
+    "stdlib/testing.schema-fragment.json": "64e1fc89dc1cfb7aba6cead35a1cd5175cfeb061d32641f892e2993395f554fe"
   }
 }

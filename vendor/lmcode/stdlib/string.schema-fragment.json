@@ -1,0 +1,20 @@
+{
+  "functions": {
+    "str_starts_with": [{ "params": ["string", "string"], "returns": "bool" }],
+    "str_ends_with": [{ "params": ["string", "string"], "returns": "bool" }],
+    "str_contains": [{ "params": ["string", "string"], "returns": "bool" }],
+    "str_lower": [{ "params": ["string"], "returns": "string" }],
+    "str_upper": [{ "params": ["string"], "returns": "string" }],
+    "str_substr": [{ "params": ["string", "int", "int"], "returns": "string" }],
+    "str_len": [{ "params": ["string"], "returns": "int" }],
+    "str_match": [{ "params": ["string", "string"], "returns": "bool" }],
+    "str_find": [{ "params": ["string", "string"], "returns": "int" }],
+    "str_replace": [{ "params": ["string", "string", "string"], "returns": "string" }],
+    "str_trim": [{ "params": ["string"], "returns": "string" }],
+    "str_repeat": [{ "params": ["string", "int"], "returns": "string" }],
+    "str_to_int": [{ "params": ["string"], "returns": "int" }],
+    "str_is_int": [{ "params": ["string"], "returns": "bool" }],
+    "str_to_float": [{ "params": ["string"], "returns": "float" }],
+    "str_is_float": [{ "params": ["string"], "returns": "bool" }]
+  }
+}

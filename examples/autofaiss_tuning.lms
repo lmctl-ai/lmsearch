@@ -45,7 +45,7 @@ end _lmcode_
 mkdir("build");
 savedsl(program, "build/autofaiss_tuning.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --dsl build/autofaiss_tuning.dslb;
+r = system ${[bin]} --lmcode build/autofaiss_tuning.dslb;
 if (r.code != 0) {
     print(r.stderr);
 }
