@@ -121,6 +121,7 @@ struct CliFilterConfig {
     std::string filter_rule;
     std::string rerank_rule;
     std::string file_filter_rule;
+    std::string ignore_rule;
     std::string embed_rule;
 
     std::string ext_filter;
@@ -135,6 +136,12 @@ struct CliFilterConfig {
     double min_score = -1e30;
     bool has_max_distance = false;
     double max_distance = 1e30;
+    bool has_respect_gitignore = false;
+    bool respect_gitignore = true;
+    bool has_include_hidden = false;
+    bool include_hidden = false;
+    std::vector<std::string> ignore_patterns;
+    std::vector<std::string> ignore_files;
     int64_t nprobe = -1;
     int64_t ef_search = -1;
     std::string params;
@@ -156,8 +163,29 @@ struct CliFilterConfig {
         } else if (a == "--file-filter-rule" && i + 1 < args.size()) {
             file_filter_rule = args[++i];
             return true;
+        } else if (a == "--ignore-rule" && i + 1 < args.size()) {
+            ignore_rule = args[++i];
+            return true;
         } else if (a == "--embed-rule" && i + 1 < args.size()) {
             embed_rule = args[++i];
+            return true;
+        } else if (a == "--no-gitignore") {
+            respect_gitignore = false;
+            has_respect_gitignore = true;
+            return true;
+        } else if (a == "--gitignore") {
+            respect_gitignore = true;
+            has_respect_gitignore = true;
+            return true;
+        } else if (a == "--hidden") {
+            include_hidden = true;
+            has_include_hidden = true;
+            return true;
+        } else if (a == "--ignore" && i + 1 < args.size()) {
+            ignore_patterns.push_back(args[++i]);
+            return true;
+        } else if (a == "--ignore-file" && i + 1 < args.size()) {
+            ignore_files.push_back(args[++i]);
             return true;
         } else if (a == "--ext" && i + 1 < args.size()) {
             ext_filter = args[++i];
@@ -223,6 +251,8 @@ struct CliFilterConfig {
                     idx->rerank_rule = entry.name;
                 } else if (entry.iface == "interface FileFilter(Document) -> bool" && idx->file_filter_rule.empty()) {
                     idx->file_filter_rule = entry.name;
+                } else if (entry.iface == "interface IgnoreRule(Document) -> bool" && idx->ignore_rule.empty()) {
+                    idx->ignore_rule = entry.name;
                 } else if (entry.iface == "interface EmbeddingTransform(FloatList, int) -> FloatList" &&
                            idx->embedder && idx->embedder->transform_rule.empty()) {
                     idx->embedder->transform_rule = entry.name;
@@ -242,7 +272,16 @@ struct CliFilterConfig {
         if (!filter_rule.empty()) idx->filter_rule = filter_rule;
         if (!rerank_rule.empty()) idx->rerank_rule = rerank_rule;
         if (!file_filter_rule.empty()) idx->file_filter_rule = file_filter_rule;
+        if (!ignore_rule.empty()) idx->ignore_rule = ignore_rule;
         if (!embed_rule.empty() && idx->embedder) idx->embedder->transform_rule = embed_rule;
+        if (has_respect_gitignore) idx->filter_opts.respect_gitignore = respect_gitignore;
+        if (has_include_hidden) idx->filter_opts.include_hidden = include_hidden;
+        for (const auto& f : ignore_files) {
+            idx->filter_opts.load_ignore_file(f);
+        }
+        for (const auto& p : ignore_patterns) {
+            idx->filter_opts.ignore_patterns.push_back(p);
+        }
 
         if (!ext_filter.empty()) idx->filter_opts.ext_filter = ext_filter;
         if (!path_prefix.empty()) idx->filter_opts.path_prefix = path_prefix;

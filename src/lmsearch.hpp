@@ -132,8 +132,12 @@ struct SearchFilterOpts {
     double max_distance = 1e30;
     int64_t min_size = -1;
     int64_t max_size = -1;
+    bool respect_gitignore = true;
+    bool include_hidden = false;
+    std::vector<std::string> ignore_patterns;
 
     void clear();
+    void load_ignore_file(const std::string& path);
     bool matches_doc(const Document* doc) const;
 };
 
@@ -159,6 +163,7 @@ struct FaissIndex {
     std::string filter_rule;
     std::string rerank_rule;
     std::string file_filter_rule;
+    std::string ignore_rule;
     SearchFilterOpts filter_opts;
 
     struct Entry {

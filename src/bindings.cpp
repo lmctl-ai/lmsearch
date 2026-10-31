@@ -543,6 +543,18 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         if (it != d.numbers.end()) return Value::integer(it->second);
         return Value::integer(static_cast<int64_t>(d.text.size()));
     });
+    reg.method("Document", "is_dir", {}, "bool", [](void* self, Args&) {
+        auto& f = doc_ref(self).fields;
+        auto it = f.find("is_dir");
+        if (it != f.end()) return Value::boolean(it->second == "true");
+        auto it_e = f.find("ext");
+        return Value::boolean(it_e != f.end() && it_e->second == ".dir");
+    });
+    reg.method("Document", "in_git", {}, "bool", [](void* self, Args&) {
+        auto& f = doc_ref(self).fields;
+        auto it = f.find("in_git");
+        return Value::boolean(it != f.end() && it->second == "true");
+    });
 
     // AutoTuner methods
     reg.method("AutoTuner", "metric", {"Metric"}, "AutoTuner", [](void* self, Args& a) {
@@ -714,6 +726,26 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         index_ref(self).file_filter_rule = a[0].s;
         return Value::object("FaissIndex", self);
     });
+    reg.method("FaissIndex", "ignore_rule", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).ignore_rule = a[0].s;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "respect_gitignore", {"bool"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.respect_gitignore = a[0].b;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "include_hidden", {"bool"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.include_hidden = a[0].b;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "ignore_pattern", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.ignore_patterns.push_back(a[0].s);
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "ignore_file", {"string"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).filter_opts.load_ignore_file(a[0].s);
+        return Value::object("FaissIndex", self);
+    });
     reg.method("FaissIndex", "filter_ext", {"string"}, "FaissIndex", [](void* self, Args& a) {
         index_ref(self).filter_opts.ext_filter = a[0].s;
         return Value::object("FaissIndex", self);
@@ -757,6 +789,7 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         idx.filter_rule.clear();
         idx.rerank_rule.clear();
         idx.file_filter_rule.clear();
+        idx.ignore_rule.clear();
         idx.filter_opts.clear();
         return Value::object("FaissIndex", self);
     });

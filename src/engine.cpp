@@ -1048,6 +1048,25 @@ void SearchFilterOpts::clear() {
     max_distance = 1e30;
     min_size = -1;
     max_size = -1;
+    respect_gitignore = true;
+    include_hidden = false;
+    ignore_patterns.clear();
+}
+
+void SearchFilterOpts::load_ignore_file(const std::string& path) {
+    std::ifstream in(std::filesystem::u8path(path));
+    if (!in) return;
+    std::string line;
+    while (std::getline(in, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n' || line.back() == ' ' || line.back() == '\t')) {
+            line.pop_back();
+        }
+        size_t first = 0;
+        while (first < line.size() && (line[first] == ' ' || line[first] == '\t')) ++first;
+        line = line.substr(first);
+        if (line.empty() || line[0] == '#') continue;
+        ignore_patterns.push_back(line);
+    }
 }
 
 bool SearchFilterOpts::matches_doc(const Document* doc) const {
@@ -1095,9 +1114,143 @@ bool SearchFilterOpts::matches_doc(const Document* doc) const {
 }
 
 static bool is_skipped_dir_name(const std::string& name) {
-    return name == ".git" || name == "build" || name == "dist" ||
-           name == "node_modules" || name == ".venv" || name == "third_party" ||
-           name == "__pycache__";
+    return name == ".git" || name == ".hg" || name == ".svn" ||
+           name == "build" || name == "dist" || name == "target" || name == "out" ||
+           name == "node_modules" || name == ".venv" || name == "venv" ||
+           name == "third_party" || name == "__pycache__" || name == "CMakeFiles" ||
+           name == ".cache" || name == ".npm" || name == ".cargo" || name == ".rustup" ||
+           name == ".nvm" || name == ".gradle";
+}
+
+static bool is_binary_or_artifact_ext(const std::string& ext) {
+    return ext == ".onnx" || ext == ".faiss" || ext == ".dslb" ||
+           ext == ".o" || ext == ".obj" || ext == ".a" || ext == ".lib" ||
+           ext == ".so" || ext == ".dylib" || ext == ".dll" || ext == ".exe" ||
+           ext == ".bin" || ext == ".dat" || ext == ".zip" || ext == ".tar" ||
+           ext == ".gz" || ext == ".xz" || ext == ".7z" || ext == ".png" ||
+           ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" ||
+           ext == ".mp4" || ext == ".mp3" || ext == ".wav" || ext == ".pdf" ||
+           ext == ".pyc" || ext == ".class" || ext == ".jar" || ext == ".wasm";
+}
+
+static bool glob_match_str(const char* pat, const char* str) {
+    while (*pat) {
+        if (*pat == '*') {
+            if (pat[1] == '*') {
+                while (*pat == '*') ++pat;
+                if (*pat == '/') ++pat;
+                if (!*pat) return true;
+                while (*str) {
+                    if (glob_match_str(pat, str)) return true;
+                    ++str;
+                }
+                return glob_match_str(pat, str);
+            }
+            ++pat;
+            if (!*pat) return (*str == '\0' || std::strchr(str, '/') == nullptr);
+            while (*str && *str != '/') {
+                if (glob_match_str(pat, str)) return true;
+                ++str;
+            }
+            return glob_match_str(pat, str);
+        } else if (*pat == '?') {
+            if (!*str || *str == '/') return false;
+            ++pat;
+            ++str;
+        } else {
+            if (*pat != *str) return false;
+            ++pat;
+            ++str;
+        }
+    }
+    return *str == '\0';
+}
+
+static bool matches_single_gitignore_rule(
+    std::string rule,
+    const std::string& rel_path,
+    const std::string& base_name,
+    bool is_dir) {
+    if (rule.empty() || rule[0] == '#') return false;
+    bool dir_only = false;
+    if (rule.size() > 1 && rule.back() == '/') {
+        dir_only = true;
+        rule.pop_back();
+    }
+    bool anchored = false;
+    if (!rule.empty() && rule.front() == '/') {
+        anchored = true;
+        rule.erase(rule.begin());
+    }
+    if (rule.empty()) return false;
+
+    if (dir_only && !is_dir) {
+        std::string prefix = rule + "/";
+        if (rel_path.compare(0, prefix.size(), prefix) == 0) return true;
+        if (!anchored && rel_path.find("/" + prefix) != std::string::npos) return true;
+        return false;
+    }
+
+    bool has_slash = (rule.find('/') != std::string::npos);
+    if (!anchored && !has_slash) {
+        if (glob_match_str(rule.c_str(), base_name.c_str())) return true;
+    }
+    if (glob_match_str(rule.c_str(), rel_path.c_str())) return true;
+    if (!anchored && glob_match_str(("**/" + rule).c_str(), rel_path.c_str())) return true;
+    return false;
+}
+
+static bool matches_ignore_list(
+    const std::vector<std::string>& patterns,
+    const std::string& rel_path,
+    const std::string& base_name,
+    bool is_dir) {
+    bool ignored = false;
+    for (const auto& raw : patterns) {
+        if (raw.empty() || raw[0] == '#') continue;
+        if (raw[0] == '!') {
+            std::string neg = raw.substr(1);
+            if (matches_single_gitignore_rule(neg, rel_path, base_name, is_dir)) {
+                ignored = false;
+            }
+        } else {
+            if (matches_single_gitignore_rule(raw, rel_path, base_name, is_dir)) {
+                ignored = true;
+            }
+        }
+    }
+    return ignored;
+}
+
+static bool is_path_in_git_repo(const std::filesystem::path& p) {
+    std::error_code ec;
+    std::filesystem::path cur = std::filesystem::absolute(p, ec);
+    if (ec) cur = p;
+    if (!std::filesystem::is_directory(cur, ec)) {
+        cur = cur.parent_path();
+    }
+    for (int depth = 0; depth < 16 && !cur.empty(); ++depth) {
+        if (std::filesystem::exists(cur / ".git", ec)) return true;
+        auto parent = cur.parent_path();
+        if (parent == cur) break;
+        cur = parent;
+    }
+    return false;
+}
+
+static void collect_dir_ignore_files(const std::filesystem::path& dir, std::vector<std::string>& out_patterns) {
+    static const char* kIgnoreFiles[] = {".gitignore", ".ignore", ".lmsearchignore"};
+    std::error_code ec;
+    for (const char* fname : kIgnoreFiles) {
+        std::filesystem::path f = dir / fname;
+        if (std::filesystem::is_regular_file(f, ec)) {
+            SearchFilterOpts tmp;
+            tmp.load_ignore_file(f.generic_string());
+            for (auto& pat : tmp.ignore_patterns) {
+                out_patterns.push_back(std::move(pat));
+            }
+        }
+    }
 }
 
 int64_t FaissIndex::add_file_path(const std::string& file_path) {
@@ -1105,7 +1258,14 @@ int64_t FaissIndex::add_file_path(const std::string& file_path) {
     if (!std::filesystem::exists(fpath) || !std::filesystem::is_regular_file(fpath)) {
         throw dslvm::Error("add_file: file does not exist: " + file_path);
     }
-    if (!filter_opts.ext_filter.empty() && !has_allowed_extension(fpath, filter_opts.ext_filter)) {
+    std::string fname = fpath.filename().generic_string();
+    std::string ext = fpath.extension().generic_string();
+    if (!filter_opts.include_hidden && !fname.empty() && fname[0] == '.') {
+        return 0;
+    }
+    if (!filter_opts.ext_filter.empty()) {
+        if (!has_allowed_extension(fpath, filter_opts.ext_filter)) return 0;
+    } else if (is_binary_or_artifact_ext(ext)) {
         return 0;
     }
     std::string norm_path = fpath.generic_string();
@@ -1116,9 +1276,32 @@ int64_t FaissIndex::add_file_path(const std::string& file_path) {
             if (!pat.empty() && norm_path.find(pat) != std::string::npos) return 0;
         }
     }
+    if (!filter_opts.ignore_patterns.empty()) {
+        if (matches_ignore_list(filter_opts.ignore_patterns, norm_path, fname, false)) {
+            return 0;
+        }
+    }
     int64_t fsize = static_cast<int64_t>(std::filesystem::file_size(fpath));
     if (filter_opts.min_size >= 0 && fsize < filter_opts.min_size) return 0;
     if (filter_opts.max_size >= 0 && fsize > filter_opts.max_size) return 0;
+
+    bool in_git = is_path_in_git_repo(fpath);
+
+    // Evaluate @ignore (IgnoreRule(Document) -> bool) BEFORE reading file bytes
+    if (!ignore_rule.empty() && host) {
+        Document* probe = host->alloc_doc(0, fname);
+        probe->fields["path"] = norm_path;
+        probe->fields["filename"] = fname;
+        probe->fields["ext"] = ext;
+        probe->fields["is_dir"] = "false";
+        probe->fields["in_git"] = in_git ? "true" : "false";
+        probe->numbers["size"] = fsize;
+        dslvm::Value ign = host->invoke_rule(
+            ignore_rule,
+            "interface IgnoreRule(Document) -> bool",
+            {dslvm::Value::object("Document", probe)});
+        if (ign.b) return 0;
+    }
 
     std::ifstream in(fpath, std::ios::binary);
     if (!in) {
@@ -1149,14 +1332,13 @@ int64_t FaissIndex::add_file_path(const std::string& file_path) {
         if (e.id >= next_id) next_id = e.id + 1;
     }
 
-    std::string fname = fpath.filename().generic_string();
-    std::string ext = fpath.extension().generic_string();
-
     std::string indexed_text = fname + "\n" + content;
     Document* doc = host->alloc_doc(next_id, indexed_text);
     doc->fields["path"] = norm_path;
     doc->fields["filename"] = fname;
     doc->fields["ext"] = ext;
+    doc->fields["is_dir"] = "false";
+    doc->fields["in_git"] = in_git ? "true" : "false";
     doc->numbers["size"] = fsize;
 
     if (!filter_opts.matches_doc(doc)) {
@@ -1182,19 +1364,76 @@ int64_t FaissIndex::add_directory_path(const std::string& dir_path, const std::s
     if (!std::filesystem::exists(dpath) || !std::filesystem::is_directory(dpath)) {
         throw dslvm::Error("add_dir: directory does not exist: " + dir_path);
     }
+
+    std::vector<std::string> active_ignores = filter_opts.ignore_patterns;
+    if (filter_opts.respect_gitignore) {
+        collect_dir_ignore_files(dpath, active_ignores);
+    }
+    bool root_in_git = is_path_in_git_repo(dpath);
+
     std::vector<std::filesystem::path> files;
-    for (auto it = std::filesystem::recursive_directory_iterator(dpath);
+    std::error_code ec;
+    auto opts = std::filesystem::directory_options::skip_permission_denied;
+    for (auto it = std::filesystem::recursive_directory_iterator(dpath, opts, ec);
          it != std::filesystem::recursive_directory_iterator();
-         ++it) {
-        if (it->is_directory()) {
-            std::string dname = it->path().filename().generic_string();
-            if (is_skipped_dir_name(dname)) {
+         it.increment(ec)) {
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        std::error_code pec;
+        if (it->is_symlink(pec)) {
+            if (it->is_directory(pec)) it.disable_recursion_pending();
+            continue;
+        }
+        std::filesystem::path cur_p = it->path();
+        std::string bname = cur_p.filename().generic_string();
+        std::string rel_p = std::filesystem::relative(cur_p, dpath, pec).generic_string();
+        if (rel_p.empty() || rel_p == ".") rel_p = bname;
+
+        if (it->is_directory(pec)) {
+            if ((!filter_opts.include_hidden && !bname.empty() && bname[0] == '.') ||
+                is_skipped_dir_name(bname)) {
                 it.disable_recursion_pending();
+                continue;
+            }
+            if (!active_ignores.empty() && matches_ignore_list(active_ignores, rel_p, bname, true)) {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if (!ignore_rule.empty() && host) {
+                bool dir_in_git = root_in_git || std::filesystem::exists(cur_p / ".git", pec);
+                Document* ddoc = host->alloc_doc(0, bname);
+                ddoc->fields["path"] = cur_p.generic_string();
+                ddoc->fields["filename"] = bname;
+                ddoc->fields["ext"] = ".dir";
+                ddoc->fields["is_dir"] = "true";
+                ddoc->fields["in_git"] = dir_in_git ? "true" : "false";
+                ddoc->numbers["size"] = 0;
+                dslvm::Value ign = host->invoke_rule(
+                    ignore_rule,
+                    "interface IgnoreRule(Document) -> bool",
+                    {dslvm::Value::object("Document", ddoc)});
+                if (ign.b) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+            }
+            if (filter_opts.respect_gitignore) {
+                collect_dir_ignore_files(cur_p, active_ignores);
             }
             continue;
         }
-        if (it->is_regular_file() && has_allowed_extension(it->path(), ext_filter)) {
-            files.push_back(it->path());
+        if (it->is_regular_file(pec)) {
+            if (!filter_opts.include_hidden && !bname.empty() && bname[0] == '.') {
+                continue;
+            }
+            if (!active_ignores.empty() && matches_ignore_list(active_ignores, rel_p, bname, false)) {
+                continue;
+            }
+            if (has_allowed_extension(cur_p, ext_filter)) {
+                files.push_back(cur_p);
+            }
         }
     }
     std::sort(files.begin(), files.end());

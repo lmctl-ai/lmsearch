@@ -90,6 +90,15 @@
         }
       ],
       "returns": "void"
+    },
+    "IgnoreRule": {
+      "params": [
+        {
+          "name": "doc",
+          "type": "Document"
+        }
+      ],
+      "returns": "bool"
     }
   },
   "functions": {
@@ -1051,6 +1060,18 @@
             "params": [],
             "returns": "int"
           }
+        ],
+        "is_dir": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "in_git": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
         ]
       }
     },
@@ -1325,6 +1346,46 @@
           }
         ],
         "file_filter_rule": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "ignore_rule": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "respect_gitignore": [
+          {
+            "params": [
+              "bool"
+            ],
+            "returns": "self"
+          }
+        ],
+        "include_hidden": [
+          {
+            "params": [
+              "bool"
+            ],
+            "returns": "self"
+          }
+        ],
+        "ignore_pattern": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "ignore_file": [
           {
             "params": [
               "string"

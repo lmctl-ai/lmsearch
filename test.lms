@@ -52,6 +52,18 @@ fn audit_metrics(m: IndexMetrics) -> void implements AuditRule {
     report("audited_index_params", m.param_string());
 }
 
+@ignore
+fn prune_noise_files(doc: Document) -> bool implements IgnoreRule {
+    let skip = false;
+    if (doc.is_dir() && str_contains(doc.filename(), "scratch_skip")) {
+        skip = true;
+    }
+    if (!doc.is_dir() && str_ends_with(doc.filename(), ".bak.md")) {
+        skip = true;
+    }
+    return skip;
+}
+
 let model = onnx_embedder(2048, 12, 42)
     .pooling(Pooling.MEAN)
     .normalize(true)
@@ -128,13 +140,26 @@ assert_true(filtered_hits.len() == 1, "filter_path_prefix(README) must narrow re
 assert_true(filtered_hits.at(0).document().filename() == "README.md", "Document.filename() must be README.md");
 file_idx.clear_rules();
 
-# 7. Directory and git worktree introspection primitives
+# 7. Directory, .gitignore / .lmsearchignore, and @ignore callback pruning
 assert_true(git_is_repo("."), "current repository root must be detected by git_is_repo");
 assert_true(!git_is_worktree("durable-memory"), "durable-memory directory is not a git worktree");
 assert_true(str_len(git_worktree_branch(".")) > 0, "git_worktree_branch(.) must return non-empty branch or HEAD");
 assert_true(dir_size_mb(".") >= 0, "dir_size_mb(.) must return non-negative size");
 let dir_added = file_idx.add_dir_entry("durable-memory");
 assert_true(dir_added == 1, "add_dir_entry must index directory entry");
+
+file_write("build/ign_keep.md", "# Keep this semantic document\nVector search with ONNX and FAISS.\n");
+file_write("build/ign_skip.bak.md", "# Backup file that should be ignored by @ignore callback\n");
+file_write("build/ign_glob.tmp.md", "# Temp file that should be ignored by ignore_pattern\n");
+let ign_idx = flat_index(cached_model.output_dim(), Metric.COSINE)
+    .embedder(cached_model)
+    .ignore_rule("prune_noise_files")
+    .ignore_pattern("*.tmp.md");
+assert_true(ign_idx.add_file("build/ign_keep.md") == 1, "ign_keep.md must be indexed");
+assert_true(ign_idx.add_file("build/ign_skip.bak.md") == 0, "ign_skip.bak.md must be pruned by @ignore callback");
+assert_true(ign_idx.add_file("build/ign_glob.tmp.md") == 0, "ign_glob.tmp.md must be pruned by ignore_pattern");
+assert_true(ign_idx.ntotal() == 1, "only 1 non-ignored file must be in ign_idx");
+assert_true(ign_idx.search_text("Vector search", 1).at(0).document().in_git(), "Document.in_git() must be true inside git repo");
 
 report("status", "all_assertions_passed");
 end _lmcode_
