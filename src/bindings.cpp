@@ -56,6 +56,11 @@ IndexMetrics& metrics_ref(void* p) {
     return *static_cast<IndexMetrics*>(p);
 }
 
+RestClient& client_ref(void* p) {
+    if (!p) throw dslvm::Error("null RestClient handle");
+    return *static_cast<RestClient*>(p);
+}
+
 } // namespace
 
 Host::Host() {
@@ -123,6 +128,14 @@ IndexMetrics* Host::alloc_metrics(const IndexMetrics& m) {
     auto ptr = std::make_unique<IndexMetrics>(m);
     metrics_arena.push_back(std::move(ptr));
     return metrics_arena.back().get();
+}
+
+RestClient* Host::alloc_client(const std::string& url) {
+    auto ptr = std::make_unique<RestClient>();
+    ptr->host = this;
+    ptr->base_url = url.empty() ? "http://127.0.0.1:8080" : url;
+    clients_arena.push_back(std::move(ptr));
+    return clients_arena.back().get();
 }
 
 dslvm::Value Host::invoke_rule(
@@ -307,6 +320,11 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     reg.function("load_index", {"string"}, "FaissIndex", [this, guard_not_callback](Args& a) {
         guard_not_callback("load_index");
         return Value::object("FaissIndex", FaissIndex::load_from_file(this, a[0].s));
+    });
+
+    reg.function("rest_client", {"string"}, "RestClient", [this, guard_not_callback](Args& a) {
+        guard_not_callback("rest_client");
+        return Value::object("RestClient", alloc_client(a[0].s));
     });
 
     reg.function("synthetic_vector", {"int", "int", "int", "float"}, "FloatList", [&colls](Args& a) {
@@ -846,6 +864,35 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
     reg.method("FaissIndex", "add_subdirs", {"string"}, "int", [](void* self, Args& a) {
         return Value::integer(index_ref(self).add_subdirs(a[0].s));
     });
+    reg.method("FaissIndex", "weights_only_cache", {"bool"}, "FaissIndex", [](void* self, Args& a) {
+        index_ref(self).weights_only_disk_cache = a[0].b;
+        return Value::object("FaissIndex", self);
+    });
+    reg.method("FaissIndex", "add_lazy_path", {"string"}, "int", [](void* self, Args& a) {
+        return Value::integer(index_ref(self).register_lazy_path(a[0].s));
+    });
+    reg.method("FaissIndex", "add_lazy_paths", {"StrList"}, "int", [](void* self, Args& a) {
+        const auto& paths = static_cast<dslvm::stdlib::StrList*>(a[0].obj)->items;
+        return Value::integer(index_ref(self).register_lazy_paths(paths));
+    });
+    reg.method("FaissIndex", "lazy_query", {"string", "int"}, "SearchResults", [](void* self, Args& a) {
+        return Value::object("SearchResults", index_ref(self).run_lazy_query(a[0].s, a[1].i));
+    });
+    reg.method("FaissIndex", "refine_view", {"int"}, "SearchResults", [](void* self, Args& a) {
+        return Value::object("SearchResults", index_ref(self).run_refined_view(a[0].i));
+    });
+    reg.method("FaissIndex", "lazy_embedded_count", {}, "int", [](void* self, Args&) {
+        return Value::integer(static_cast<int64_t>(index_ref(self).lazy_embedded_paths.size()));
+    });
+    reg.method("FaissIndex", "cached_hits_count", {}, "int", [](void* self, Args&) {
+        return Value::integer(static_cast<int64_t>(index_ref(self).cached_broad_hits.size()));
+    });
+    reg.method("FaissIndex", "last_from_cache", {}, "bool", [](void* self, Args&) {
+        return Value::boolean(index_ref(self).last_from_cache);
+    });
+    reg.method("FaissIndex", "last_newly_embedded", {}, "int", [](void* self, Args&) {
+        return Value::integer(index_ref(self).last_newly_embedded);
+    });
     reg.method("FaissIndex", "remove_id", {"int"}, "int", [](void* self, Args& a) {
         return Value::integer(index_ref(self).remove_by_id(a[0].i));
     });
@@ -996,6 +1043,93 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
             << ", \"compression_ratio\": " << fmt_num(m.compression_ratio) << "}";
         emitted_metrics.push_back(oss.str());
         return Value::object("IndexMetrics", self);
+    });
+
+    // RestClient methods (for interacting with single-user lmsearch REST web server)
+    reg.method("RestClient", "url", {}, "string", [](void* self, Args&) {
+        return Value::string(client_ref(self).base_url);
+    });
+    reg.method("RestClient", "status", {}, "string", [](void* self, Args&) {
+        return Value::string(client_ref(self).get("/status"));
+    });
+    reg.method("RestClient", "add_path", {"string"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/paths?add=" + url_encode(a[0].s));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "add_paths", {"StrList"}, "RestClient", [](void* self, Args& a) {
+        auto& c = client_ref(self);
+        const auto& paths = static_cast<dslvm::stdlib::StrList*>(a[0].obj)->items;
+        for (const auto& p : paths) {
+            c.get("/paths?add=" + url_encode(p));
+        }
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "query", {"string", "int"}, "SearchResults", [](void* self, Args& a) {
+        auto& c = client_ref(self);
+        std::string resp = c.get("/query?q=" + url_encode(a[0].s) + "&k=" + std::to_string(a[1].i));
+        return Value::object("SearchResults", c.parse_search_results(resp, a[0].s));
+    });
+    reg.method("RestClient", "requery", {"int"}, "SearchResults", [](void* self, Args& a) {
+        auto& c = client_ref(self);
+        std::string resp = c.get("/requery?k=" + std::to_string(a[0].i));
+        return Value::object("SearchResults", c.parse_search_results(resp, ""));
+    });
+    reg.method("RestClient", "filter_ext", {"string"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?ext=" + url_encode(a[0].s));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_path_prefix", {"string"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?path_prefix=" + url_encode(a[0].s));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_path_contains", {"string"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?path_contains=" + url_encode(a[0].s));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_exclude_path", {"string"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?exclude_path=" + url_encode(a[0].s));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_text_contains", {"string"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?contains=" + url_encode(a[0].s));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_field", {"string", "string"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?field=" + url_encode(a[0].s + "=" + a[1].s));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_min_score", {"float"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?min_score=" + fmt_num(a[0].f));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_max_distance", {"float"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?max_distance=" + fmt_num(a[0].f));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_size_range", {"int", "int"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?min_size=" + std::to_string(a[0].i) + "&max_size=" + std::to_string(a[1].i));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "filter_dsl", {"string"}, "RestClient", [](void* self, Args& a) {
+        client_ref(self).get("/filter?dsl=" + url_encode(a[0].s));
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "clear_filter", {}, "RestClient", [](void* self, Args&) {
+        client_ref(self).get("/filter?reset=1");
+        return Value::object("RestClient", self);
+    });
+    reg.method("RestClient", "from_cache", {}, "bool", [](void* self, Args&) {
+        return Value::boolean(client_ref(self).last_from_cache);
+    });
+    reg.method("RestClient", "newly_embedded", {}, "int", [](void* self, Args&) {
+        return Value::integer(client_ref(self).last_newly_embedded);
+    });
+    reg.method("RestClient", "cached_broad_hits", {}, "int", [](void* self, Args&) {
+        return Value::integer(client_ref(self).last_cached_broad_hits);
+    });
+    reg.method("RestClient", "shutdown", {}, "bool", [](void* self, Args&) {
+        std::string resp = client_ref(self).get("/shutdown");
+        return Value::boolean(resp.find("\"ok\": true") != std::string::npos);
     });
 }
 

@@ -214,6 +214,14 @@
         "returns": "FaissIndex"
       }
     ],
+    "rest_client": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "RestClient"
+      }
+    ],
     "load_index": [
       {
         "params": [
@@ -819,6 +827,167 @@
           "string"
         ],
         "returns": "int"
+      }
+    ],
+    "lmcode_return_null": [
+      {
+        "params": [],
+        "returns": "void"
+      }
+    ],
+    "lmcode_return_put_null": [
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "void"
+      }
+    ],
+    "lmcode_return_put": [
+      {
+        "params": [
+          "string",
+          "FloatList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "FloatMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "IntList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "IntMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "Json"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "StrList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "StrMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "bool"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "float"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "int"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "string"
+        ],
+        "returns": "void"
+      }
+    ],
+    "lmcode_return_set": [
+      {
+        "params": [
+          "FloatList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "FloatMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "IntList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "IntMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "Json"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "StrList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "StrMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "bool"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "float"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "int"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "void"
       }
     ]
   },
@@ -1528,6 +1697,71 @@
             "returns": "int"
           }
         ],
+        "weights_only_cache": [
+          {
+            "params": [
+              "bool"
+            ],
+            "returns": "self"
+          }
+        ],
+        "add_lazy_path": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "int"
+          }
+        ],
+        "add_lazy_paths": [
+          {
+            "params": [
+              "StrList"
+            ],
+            "returns": "int"
+          }
+        ],
+        "lazy_query": [
+          {
+            "params": [
+              "string",
+              "int"
+            ],
+            "returns": "SearchResults"
+          }
+        ],
+        "refine_view": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "SearchResults"
+          }
+        ],
+        "lazy_embedded_count": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "cached_hits_count": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "last_from_cache": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "last_newly_embedded": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
         "remove_id": [
           {
             "params": [
@@ -1781,6 +2015,167 @@
               "string"
             ],
             "returns": "self"
+          }
+        ]
+      }
+    },
+    "RestClient": {
+      "methods": {
+        "url": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "status": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "add_path": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "add_paths": [
+          {
+            "params": [
+              "StrList"
+            ],
+            "returns": "self"
+          }
+        ],
+        "query": [
+          {
+            "params": [
+              "string",
+              "int"
+            ],
+            "returns": "SearchResults"
+          }
+        ],
+        "requery": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "SearchResults"
+          }
+        ],
+        "filter_ext": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_path_prefix": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_path_contains": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_exclude_path": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_text_contains": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_field": [
+          {
+            "params": [
+              "string",
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_min_score": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_max_distance": [
+          {
+            "params": [
+              "float"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_size_range": [
+          {
+            "params": [
+              "int",
+              "int"
+            ],
+            "returns": "self"
+          }
+        ],
+        "filter_dsl": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "self"
+          }
+        ],
+        "clear_filter": [
+          {
+            "params": [],
+            "returns": "self"
+          }
+        ],
+        "from_cache": [
+          {
+            "params": [],
+            "returns": "bool"
+          }
+        ],
+        "newly_embedded": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "cached_broad_hits": [
+          {
+            "params": [],
+            "returns": "int"
+          }
+        ],
+        "shutdown": [
+          {
+            "params": [],
+            "returns": "bool"
           }
         ]
       }

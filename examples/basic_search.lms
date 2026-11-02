@@ -32,11 +32,7 @@ report("onnx_summary", model.summary());
 end _lmcode_
 
 mkdir("build");
-savedsl(program, "build/basic_search.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --lmcode build/basic_search.dslb;
-if (r.code != 0) {
-    print(r.stderr);
-}
-assert(r.code == 0, "basic_search failed: " + r.stdout);
-print(r.stdout);
+r = run_lmcode(program, {command: [bin, "--save-dslb", "build/basic_search.dslb", "--lmcode", "$DSLFILE"]});
+assert(r.ok, "examples/basic_search.lms failed");
+println(json_stringify(r));

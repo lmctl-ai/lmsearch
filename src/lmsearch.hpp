@@ -166,6 +166,15 @@ struct FaissIndex {
     std::string ignore_rule;
     SearchFilterOpts filter_opts;
 
+    // Lazy in-memory index & broad result cache (clean start: only model weights cached on disk)
+    bool weights_only_disk_cache = true;
+    std::vector<std::string> lazy_candidates;
+    std::vector<std::string> lazy_embedded_paths;
+    std::string cached_query_text;
+    std::vector<SearchHit> cached_broad_hits;
+    int64_t last_newly_embedded = 0;
+    bool last_from_cache = false;
+
     struct Entry {
         int64_t id = 0;
         std::vector<double> raw_vec;
@@ -190,6 +199,10 @@ struct FaissIndex {
     int64_t add_path_list(const std::vector<std::string>& paths, const std::string& ext_filter = "");
     int64_t add_dir_entry(const std::string& dir_path, int64_t size_bytes_override = -1);
     int64_t add_subdirs(const std::string& parent_dir);
+    int64_t register_lazy_path(const std::string& p);
+    int64_t register_lazy_paths(const std::vector<std::string>& paths);
+    SearchResults* run_lazy_query(const std::string& qtext, int64_t k);
+    SearchResults* run_refined_view(int64_t k);
     int64_t remove_by_id(int64_t id);
     std::vector<double> reconstruct_vec(int64_t id) const;
     std::vector<double> quantize_reconstruct(const Entry& e) const;
@@ -199,6 +212,18 @@ struct FaissIndex {
     IndexMetrics* run_evaluate(int64_t k);
     void save_to_file(const std::string& path) const;
     static FaissIndex* load_from_file(Host* host, const std::string& path);
+};
+
+struct RestClient {
+    Host* host = nullptr;
+    std::string base_url = "http://127.0.0.1:8080";
+    std::string last_response_json;
+    bool last_from_cache = false;
+    int64_t last_newly_embedded = 0;
+    int64_t last_cached_broad_hits = 0;
+
+    std::string get(const std::string& path_and_query);
+    SearchResults* parse_search_results(const std::string& resp_json, const std::string& qtext);
 };
 
 struct Host {
@@ -217,6 +242,7 @@ struct Host {
     std::vector<std::unique_ptr<SearchHit>> hits;
     std::vector<std::unique_ptr<SearchResults>> results_arena;
     std::vector<std::unique_ptr<IndexMetrics>> metrics_arena;
+    std::vector<std::unique_ptr<RestClient>> clients_arena;
 
     std::vector<std::string> emitted_models;
     std::vector<std::string> emitted_plans;
@@ -237,6 +263,7 @@ struct Host {
     SearchHit* alloc_hit(const SearchHit& h);
     SearchResults* alloc_results();
     IndexMetrics* alloc_metrics(const IndexMetrics& m);
+    RestClient* alloc_client(const std::string& url);
 
     // Invoke an annotated rule entry by function name in an isolated callback registry/program.
     dslvm::Value invoke_rule(
@@ -258,5 +285,8 @@ std::string git_worktree_branch(const std::string& dir_path);
 bool git_is_merged(const std::string& dir_path, const std::string& target_branch);
 bool git_is_clean(const std::string& dir_path);
 int64_t compute_dir_size_bytes(const std::string& dir_path);
+std::string url_encode(const std::string& s);
+std::string url_decode(const std::string& s);
+std::string http_get_raw(const std::string& url);
 
 } // namespace lmsearch

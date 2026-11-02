@@ -23,6 +23,7 @@
 | `@embed` | `EmbeddingTransform` | `(FloatList, int) -> FloatList` | Post-processes ONNX embeddings before indexing or querying |
 | `@policy` | `IndexPolicy` | `(AutoPlan) -> string` | Selects or overrides candidate AutoFaiss index keys |
 | `@file_filter` | `FileFilter` | `(Document) -> bool` | Ingest-time file gate & metadata enricher before embedding |
+| `@ignore` | `IgnoreRule` | `(Document) -> bool` | Directory subtree & file prune predicate (alongside `.gitignore` / `.lmsearchignore`) |
 | `@config` | `SearchConfig` | `(FaissIndex) -> void` | Programmatic `lmcode` configuration of index parameters, common filters, and rules |
 | `@filter` | `VectorFilter` | `(int, Document) -> bool` | Programmable `faiss::IDSelector` predicate during FAISS search |
 | `@rerank` | `Reranker` | `(SearchHit, string) -> float` | Rescores candidate FAISS hits using document fields and query text |
@@ -80,6 +81,37 @@ lmscript examples/persistence_and_quantization.lms
     --query "faiss hnsw vector search" \
     --lmcode build/hairy_search_filters.dslb \
     -k 5
+```
+
+### Single-User REST Web Server (`serve`) & Client (`client`) with Lazy In-Memory Index
+
+`lmsearch serve` launches a single-user, global-session REST server (no user auth or session ID required) designed for interactive query -> filter refinement -> requery workflows:
+
+1. **Weights-Only Disk Cache (`--weights-only-cache` / `--clean-start`)**: Only ONNX model weights (`model.onnx`) are cached on disk (`~/.cache/lmsearch/models/...`). Every server start begins with a clean in-memory index and result cache.
+2. **Memory as a Lazy Index**: File/directory paths passed to `lmsearch serve` (or added via `/paths?add=...`) are cataloged lazily in memory without reading or embedding files upfront.
+3. **Broad Query Result Cache + Fast Refined Filter View**:
+   - `GET /query?q=<TEXT>&k=<K>` (or `lmsearch client query`) lazily embeds only candidate files matching the broad filter that are not yet in RAM, runs FAISS similarity search, and caches the full broad result set in server memory (`cached_broad_hits`).
+   - `GET /filter?...` (or `lmsearch client filter`) modifies the active filter (`--ext`, `--path-prefix`, `--path-contains`, `--exclude-path`, `--contains`, `--field`, `--min-score`, `--max-distance`, `--min-size`, `--max-size`, `--lmcode`, or `--reset`) on the global session.
+   - `GET /requery?k=<K>` / `GET /view?k=<K>` (or `lmsearch client requery`) treats the cached broad search results in server memory as a fast view (`from_memory_cache: true`, `lazy_newly_embedded: 0`) and returns refined hits immediately without touching disk or running ONNX embeddings.
+4. **Client Shutdown & Idle Timeout Auto-Shutdown**:
+   - Shut down explicitly via `lmsearch client shutdown` (`GET /shutdown`), or automatically when idle for `--timeout <SECONDS>` (or `--timeout-ms <MS>`).
+
+```bash
+# 1. Launch single-user REST server in background (clean start, weights-only disk cache, 60s idle timeout)
+./build/lmsearch serve README.md durable-memory examples \
+    --port 8080 --timeout 60 --weights-only-cache &
+
+# 2. Broad query (lazily embeds matching candidate files in RAM & caches broad results)
+./build/lmsearch client --port 8080 query --query "ONNX and FAISS vector search" -k 5
+
+# 3. Refine filter on the global session
+./build/lmsearch client --port 8080 filter --ext .md --path-prefix README --contains lmsearch
+
+# 4. Requery fast refined view directly from server memory cache (0 new embeddings)
+./build/lmsearch client --port 8080 requery -k 5
+
+# 5. Shut down server explicitly (or let --timeout shut it down automatically)
+./build/lmsearch client --port 8080 shutdown
 ```
 
 ### CLI Discovery Flags

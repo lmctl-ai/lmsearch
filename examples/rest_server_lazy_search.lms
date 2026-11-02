@@ -1,0 +1,59 @@
+# examples/rest_server_lazy_search.lms
+# Demonstrates:
+# 1. Single-user global-session REST server (no auth / session ID required)
+# 2. Lazy in-memory indexing + broad search result caching in RAM + fast refined filter view
+# 3. Client launches server, queries, refines filter, requeries from memory cache, and shuts down
+# 4. Clean start on every launch (only ONNX model weights cached on disk)
+
+lazy_prog = _lmcode_ schema="../schema/lmsearch.dsl.json";
+
+file_write("build/lazy_corpus/faiss_hnsw.md", "# FAISS HNSW\nHierarchical navigable small world graph index for fast approximate nearest neighbor vector search.\n");
+file_write("build/lazy_corpus/onnx_runtime.cpp", "// ONNX Runtime C++ inference session for transformer sentence embeddings and vector search\n");
+file_write("build/lazy_corpus/autofaiss_tune.py", "# AutoFaiss hyperparameter tuning for nprobe and efSearch recall targets\n");
+
+# 1. Clean start: only ONNX model weights are cached on disk; index & result cache live in RAM
+let model = onnx_pretrained("all-MiniLM-L6-v2", "build/lazy_model_cache");
+assert_true(model.cached(), "model weights must be cached on disk");
+
+let idx = hnsw_index(model.output_dim(), 8, Metric.COSINE)
+    .embedder(model)
+    .weights_only_cache(true);
+
+# 2. Register candidate paths lazily (no files read or embedded yet!)
+let cands = idx.add_lazy_path("build/lazy_corpus");
+assert_true(cands == 3, "add_lazy_path must discover 3 candidate files lazily");
+assert_true(idx.lazy_embedded_count() == 0, "0 files should be embedded before first query");
+
+# 3. Broad query: lazily embeds candidate files into memory and caches broad hits in RAM
+let broad_hits = idx.lazy_query("FAISS HNSW and ONNX vector search", 3);
+assert_true(!idx.last_from_cache(), "first broad query computes embeddings and searches");
+assert_true(idx.last_newly_embedded() == 3, "broad query lazily embeds the 3 candidate files");
+assert_true(idx.lazy_embedded_count() == 3, "3 files are now embedded in memory");
+assert_true(idx.cached_hits_count() == 3, "broad search hits are cached in server memory");
+assert_true(broad_hits.len() == 3, "broad query returns 3 hits");
+
+# 4. Modify filter and requery the cached broad hits as a fast memory view (0 new embeddings)
+idx.filter_ext(".md").filter_text_contains("HNSW");
+let refined_hits = idx.refine_view(3);
+assert_true(idx.last_from_cache(), "refined filter view is served directly from cached broad hits in memory");
+assert_true(idx.last_newly_embedded() == 0, "refined view embeds 0 new files");
+assert_true(refined_hits.len() == 1, "refined view narrows cached results to 1 .md hit");
+assert_true(refined_hits.at(0).document().filename() == "faiss_hnsw.md", "refined view returns faiss_hnsw.md");
+
+# 5. Modify filter again to view .cpp hits from the same cached broad result set
+idx.clear_rules().filter_ext(".cpp");
+let cpp_hits = idx.refine_view(3);
+assert_true(idx.last_from_cache(), "second refined view also comes from memory cache");
+assert_true(cpp_hits.len() == 1, "cpp refined view returns 1 hit");
+assert_true(cpp_hits.at(0).document().filename() == "onnx_runtime.cpp", "cpp view returns onnx_runtime.cpp");
+
+report("lazy_memory_view", "verified");
+end _lmcode_
+
+mkdir("build");
+mkdir("build/lazy_corpus");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = run_lmcode(lazy_prog, {command: [bin, "--save-dslb", "build/rest_server_lazy_search.dslb", "--lmcode", "$DSLFILE"]});
+assert(r.ok, "examples/rest_server_lazy_search.lms failed");
+println(json_stringify(r));

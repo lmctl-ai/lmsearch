@@ -40,11 +40,7 @@ report("top_hit_path", hits.at(0).path());
 end _lmcode_
 
 mkdir("build");
-savedsl(program, "build/file_and_dir_search.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --lmcode build/file_and_dir_search.dslb;
-if (r.code != 0) {
-    print(r.stderr);
-}
-assert(r.code == 0, "file_and_dir_search failed: " + r.stdout);
-print(r.stdout);
+r = run_lmcode(program, {command: [bin, "--save-dslb", "build/file_and_dir_search.dslb", "--lmcode", "$DSLFILE"]});
+assert(r.ok, "examples/file_and_dir_search.lms failed");
+println(json_stringify(r));

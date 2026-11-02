@@ -39,11 +39,7 @@ report("restored_ntotal", str(restored.ntotal()));
 end _lmcode_
 
 mkdir("build");
-savedsl(program, "build/persistence_and_quantization.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --lmcode build/persistence_and_quantization.dslb;
-if (r.code != 0) {
-    print(r.stderr);
-}
-assert(r.code == 0, "persistence_and_quantization failed: " + r.stdout);
-print(r.stdout);
+r = run_lmcode(program, {command: [bin, "--save-dslb", "build/persistence_and_quantization.dslb", "--lmcode", "$DSLFILE"]});
+assert(r.ok, "examples/persistence_and_quantization.lms failed");
+println(json_stringify(r));

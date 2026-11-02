@@ -5,6 +5,7 @@ SDK_REF ?= HEAD
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Werror -pedantic
 INCLUDES := -Isrc -Ibuild -Ivendor/lmcode/include -Ivendor/lmcode/stdlib -DLMSEARCH_VERSION=\"$(VERSION)\"
 BIN ?= build/lmsearch
+LDFLAGS ?= $(if $(filter Windows_NT,$(OS)),-lws2_32,)
 SCHEMA := schema/lmsearch.dsl.json
 CLI_SCHEMA := cli.schema.latest.json
 SCHEMA_HEADER := build/lmsearch_schema.hpp
@@ -27,7 +28,7 @@ $(SCHEMA_HEADER): $(SCHEMA) $(CLI_SCHEMA) scripts/embed-schema.py
 
 $(BIN): $(SOURCES) $(HEADERS) $(SCHEMA_HEADER)
 	@mkdir -p $(dir $(BIN))
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SOURCES) -o $(BIN)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(SOURCES) $(LDFLAGS) -o $(BIN)
 
 with-upstream: $(SOURCES) $(HEADERS) $(SCHEMA_HEADER) $(FAISS_LIB) $(ONNX_LIB)
 	@mkdir -p build

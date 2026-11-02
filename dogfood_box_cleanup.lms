@@ -196,11 +196,7 @@ report("total_reclaimable_mb", str(total_reclaim_mb));
 end _lmcode_
 
 mkdir("build");
-savedsl(program, "build/dogfood_box_cleanup.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --lmcode build/dogfood_box_cleanup.dslb;
-if (r.code != 0) {
-    print(r.stderr);
-}
-assert(r.code == 0, "dogfood_box_cleanup.lms failed: " + r.stdout);
-print(r.stdout);
+r = run_lmcode(program, {command: [bin, "--save-dslb", "build/dogfood_box_cleanup.dslb", "--lmcode", "$DSLFILE"]});
+assert(r.ok, "dogfood_box_cleanup.lms failed");
+println(json_stringify(r));

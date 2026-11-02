@@ -10,6 +10,19 @@
 #include <limits>
 #include <numeric>
 #include <sstream>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #ifdef LMSEARCH_WITH_UPSTREAM_FAISS_ONNX
 #include <faiss/AutoTune.h>
@@ -1712,6 +1725,208 @@ int64_t FaissIndex::add_subdirs(const std::string& parent_dir) {
     return count;
 }
 
+int64_t FaissIndex::register_lazy_path(const std::string& p) {
+    std::error_code ec;
+    std::filesystem::path fp = std::filesystem::u8path(p);
+    if (!std::filesystem::exists(fp, ec)) {
+        throw dslvm::Error("register_lazy_path: path does not exist: " + p);
+    }
+    auto add_unique_cand = [this](const std::string& norm_f) {
+        if (std::find(lazy_candidates.begin(), lazy_candidates.end(), norm_f) == lazy_candidates.end()) {
+            lazy_candidates.push_back(norm_f);
+            return 1;
+        }
+        return 0;
+    };
+
+    if (std::filesystem::is_regular_file(fp, ec)) {
+        return add_unique_cand(fp.generic_string());
+    }
+    if (!std::filesystem::is_directory(fp, ec)) {
+        return 0;
+    }
+
+    std::vector<std::string> active_ignores = filter_opts.ignore_patterns;
+    if (filter_opts.respect_gitignore) {
+        collect_dir_ignore_files(fp, active_ignores);
+    }
+    bool root_in_git = is_path_in_git_repo(fp);
+
+    std::vector<std::filesystem::path> found;
+    auto opts = std::filesystem::directory_options::skip_permission_denied;
+    for (auto it = std::filesystem::recursive_directory_iterator(fp, opts, ec);
+         it != std::filesystem::recursive_directory_iterator();
+         it.increment(ec)) {
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        std::error_code pec;
+        if (it->is_symlink(pec)) {
+            if (it->is_directory(pec)) it.disable_recursion_pending();
+            continue;
+        }
+        std::filesystem::path cur_p = it->path();
+        std::string bname = cur_p.filename().generic_string();
+        std::string rel_p = std::filesystem::relative(cur_p, fp, pec).generic_string();
+        if (rel_p.empty() || rel_p == ".") rel_p = bname;
+
+        if (it->is_directory(pec)) {
+            if ((!filter_opts.include_hidden && !bname.empty() && bname[0] == '.') ||
+                is_skipped_dir_name(bname)) {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if (!active_ignores.empty() && matches_ignore_list(active_ignores, rel_p, bname, true)) {
+                it.disable_recursion_pending();
+                continue;
+            }
+            if (!ignore_rule.empty() && host) {
+                bool dir_in_git = root_in_git || std::filesystem::exists(cur_p / ".git", pec);
+                Document* ddoc = host->alloc_doc(0, bname);
+                ddoc->fields["path"] = cur_p.generic_string();
+                ddoc->fields["filename"] = bname;
+                ddoc->fields["ext"] = ".dir";
+                ddoc->fields["is_dir"] = "true";
+                ddoc->fields["in_git"] = dir_in_git ? "true" : "false";
+                ddoc->numbers["size"] = 0;
+                dslvm::Value ign = host->invoke_rule(
+                    ignore_rule,
+                    "interface IgnoreRule(Document) -> bool",
+                    {dslvm::Value::object("Document", ddoc)});
+                if (ign.b) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+            }
+            if (filter_opts.respect_gitignore) {
+                collect_dir_ignore_files(cur_p, active_ignores);
+            }
+            continue;
+        }
+        if (it->is_regular_file(pec)) {
+            if (!filter_opts.include_hidden && !bname.empty() && bname[0] == '.') {
+                continue;
+            }
+            std::string ext = cur_p.extension().generic_string();
+            if (is_binary_or_artifact_ext(ext)) continue;
+            if (!active_ignores.empty() && matches_ignore_list(active_ignores, rel_p, bname, false)) {
+                continue;
+            }
+            found.push_back(cur_p);
+        }
+    }
+    std::sort(found.begin(), found.end());
+    int64_t added = 0;
+    for (const auto& f : found) {
+        added += add_unique_cand(f.generic_string());
+    }
+    return added;
+}
+
+int64_t FaissIndex::register_lazy_paths(const std::vector<std::string>& paths) {
+    int64_t total = 0;
+    for (const auto& p : paths) {
+        total += register_lazy_path(p);
+    }
+    return total;
+}
+
+SearchResults* FaissIndex::run_lazy_query(const std::string& qtext, int64_t k) {
+    if (k <= 0) throw dslvm::Error("run_lazy_query k must be positive");
+    if (!embedder) {
+        if (!host) throw dslvm::Error("run_lazy_query: FaissIndex has no Host");
+        OnnxModel loaded = OnnxModel::load_or_download_cached(host, "all-MiniLM-L6-v2", dim);
+        OnnxModel* m = host->alloc_model();
+        *m = std::move(loaded);
+        m->host = host;
+        embedder = m;
+    }
+
+    int64_t newly_embedded = 0;
+    for (const auto& cand_path : lazy_candidates) {
+        if (std::find(lazy_embedded_paths.begin(), lazy_embedded_paths.end(), cand_path) != lazy_embedded_paths.end()) {
+            continue;
+        }
+        std::filesystem::path fpath = std::filesystem::u8path(cand_path);
+        if (!filter_opts.ext_filter.empty() && !has_allowed_extension(fpath, filter_opts.ext_filter)) {
+            continue;
+        }
+        int64_t added = add_file_path(cand_path);
+        if (added > 0) {
+            lazy_embedded_paths.push_back(cand_path);
+            newly_embedded += added;
+        }
+    }
+
+    auto qvec = embedder->run_text(qtext);
+    int64_t broad_cap = std::max<int64_t>(k, static_cast<int64_t>(entries.size()));
+    if (broad_cap <= 0) broad_cap = k;
+    SearchResults* full_res = run_search(qvec, broad_cap, qtext);
+
+    cached_query_text = qtext;
+    cached_broad_hits.clear();
+    for (const auto* hp : full_res->hits) {
+        if (hp) cached_broad_hits.push_back(*hp);
+    }
+    last_newly_embedded = newly_embedded;
+    last_from_cache = false;
+
+    SearchResults* top_res = host->alloc_results();
+    top_res->query_text = qtext;
+    top_res->params = full_res->params;
+    for (size_t i = 0; i < full_res->hits.size() && static_cast<int64_t>(i) < k; ++i) {
+        top_res->hits.push_back(full_res->hits[i]);
+    }
+    return top_res;
+}
+
+SearchResults* FaissIndex::run_refined_view(int64_t k) {
+    if (k <= 0) throw dslvm::Error("run_refined_view k must be positive");
+    last_newly_embedded = 0;
+    last_from_cache = true;
+
+    SearchResults* res = host->alloc_results();
+    res->query_text = cached_query_text;
+    res->params = "view=memory_cache";
+
+    for (const auto& base_hit : cached_broad_hits) {
+        if (!filter_opts.matches_doc(base_hit.doc)) continue;
+        if (!filter_rule.empty() && host && base_hit.doc) {
+            dslvm::Value keep = host->invoke_rule(
+                filter_rule,
+                "interface VectorFilter(int, Document) -> bool",
+                {dslvm::Value::integer(base_hit.id), dslvm::Value::object("Document", base_hit.doc)});
+            if (!keep.b) continue;
+        }
+        if (base_hit.distance > filter_opts.max_distance) continue;
+
+        SearchHit h = base_hit;
+        SearchHit* hp = host->alloc_hit(h);
+        if (!rerank_rule.empty() && host) {
+            dslvm::Value new_score = host->invoke_rule(
+                rerank_rule,
+                "interface Reranker(SearchHit, string) -> float",
+                {dslvm::Value::object("SearchHit", hp), dslvm::Value::string(cached_query_text)});
+            hp->score = new_score.f;
+        }
+        if (hp->score < filter_opts.min_score) continue;
+        res->hits.push_back(hp);
+    }
+
+    std::sort(res->hits.begin(), res->hits.end(), [](const SearchHit* a, const SearchHit* b) {
+        if (std::abs(a->score - b->score) > 1e-12) return a->score > b->score;
+        return a->id < b->id;
+    });
+    if (static_cast<int64_t>(res->hits.size()) > k) {
+        res->hits.resize(static_cast<size_t>(k));
+    }
+    for (size_t i = 0; i < res->hits.size(); ++i) {
+        res->hits[i]->rank = static_cast<int64_t>(i);
+    }
+    return res;
+}
+
 std::vector<double> FaissIndex::quantize_reconstruct(const Entry& e) const {
     if (m_pq <= 0 || pq_centroids.empty() || e.pq_codes.size() != static_cast<size_t>(m_pq)) {
         return e.norm_vec;
@@ -2137,6 +2352,234 @@ FaissIndex* FaissIndex::load_from_file(Host* host, const std::string& path) {
         }
     }
     return idx;
+}
+
+std::string url_encode(const std::string& s) {
+    static const char* hex = "0123456789ABCDEF";
+    std::string out;
+    out.reserve(s.size() * 2);
+    for (unsigned char c : s) {
+        if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            out.push_back(static_cast<char>(c));
+        } else {
+            out.push_back('%');
+            out.push_back(hex[(c >> 4) & 0xF]);
+            out.push_back(hex[c & 0xF]);
+        }
+    }
+    return out;
+}
+
+std::string url_decode(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '+') {
+            out.push_back(' ');
+        } else if (s[i] == '%' && i + 2 < s.size()) {
+            auto hex_val = [](char ch) -> int {
+                if (ch >= '0' && ch <= '9') return ch - '0';
+                if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+                if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+                return -1;
+            };
+            int hi = hex_val(s[i + 1]);
+            int lo = hex_val(s[i + 2]);
+            if (hi >= 0 && lo >= 0) {
+                out.push_back(static_cast<char>((hi << 4) | lo));
+                i += 2;
+            } else {
+                out.push_back(s[i]);
+            }
+        } else {
+            out.push_back(s[i]);
+        }
+    }
+    return out;
+}
+
+std::string http_get_raw(const std::string& url) {
+    std::string u = url;
+    if (u.compare(0, 7, "http://") == 0) u = u.substr(7);
+    std::string host_port = u;
+    std::string path = "/";
+    auto slash = u.find('/');
+    if (slash != std::string::npos) {
+        host_port = u.substr(0, slash);
+        path = u.substr(slash);
+    }
+    std::string host = "127.0.0.1";
+    int port = 8080;
+    auto colon = host_port.find(':');
+    if (colon != std::string::npos) {
+        host = host_port.substr(0, colon);
+        port = std::stoi(host_port.substr(colon + 1));
+    } else if (!host_port.empty()) {
+        host = host_port;
+    }
+    if (host == "localhost") host = "127.0.0.1";
+
+#ifdef _WIN32
+    static bool wsa_init = false;
+    if (!wsa_init) {
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+        wsa_init = true;
+    }
+    SOCKET fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (fd == INVALID_SOCKET) {
+        throw dslvm::Error("HTTP client socket creation failed");
+    }
+#else
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        throw dslvm::Error("HTTP client socket creation failed");
+    }
+#endif
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<uint16_t>(port));
+    addr.sin_addr.s_addr = inet_addr(host.c_str());
+
+    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+#ifdef _WIN32
+        closesocket(fd);
+#else
+        close(fd);
+#endif
+        throw dslvm::Error("HTTP client cannot connect to " + host + ":" + std::to_string(port));
+    }
+
+    std::string req = "GET " + path + " HTTP/1.1\r\nHost: " + host_port + "\r\nConnection: close\r\n\r\n";
+    send(fd, req.c_str(), static_cast<int>(req.size()), 0);
+
+    std::string raw;
+    char buf[4096];
+    for (;;) {
+        int n = recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0) break;
+        raw.append(buf, static_cast<size_t>(n));
+    }
+#ifdef _WIN32
+    closesocket(fd);
+#else
+    close(fd);
+#endif
+
+    auto hdr_end = raw.find("\r\n\r\n");
+    if (hdr_end != std::string::npos) {
+        return raw.substr(hdr_end + 4);
+    }
+    auto lf_end = raw.find("\n\n");
+    if (lf_end != std::string::npos) {
+        return raw.substr(lf_end + 2);
+    }
+    return raw;
+}
+
+std::string RestClient::get(const std::string& path_and_query) {
+    std::string full = base_url;
+    if (!full.empty() && full.back() == '/') full.pop_back();
+    if (!path_and_query.empty() && path_and_query.front() == '/') {
+        full += path_and_query;
+    } else {
+        full += "/" + path_and_query;
+    }
+    last_response_json = http_get_raw(full);
+    return last_response_json;
+}
+
+static std::string extract_json_str_at(const std::string& s, const std::string& key, size_t start_pos, size_t end_pos) {
+    std::string needle = "\"" + key + "\":";
+    auto p = s.find(needle, start_pos);
+    if (p == std::string::npos || p >= end_pos) return "";
+    p = s.find('"', p + needle.size());
+    if (p == std::string::npos || p >= end_pos) return "";
+    std::string out;
+    for (size_t i = p + 1; i < end_pos && i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            char esc = s[++i];
+            if (esc == 'n') out.push_back('\n');
+            else if (esc == 'r') out.push_back('\r');
+            else if (esc == 't') out.push_back('\t');
+            else out.push_back(esc);
+        } else if (s[i] == '"') {
+            return out;
+        } else {
+            out.push_back(s[i]);
+        }
+    }
+    return out;
+}
+
+static double extract_json_num_at(const std::string& s, const std::string& key, size_t start_pos, size_t end_pos, double def_val = 0.0) {
+    std::string needle = "\"" + key + "\":";
+    auto p = s.find(needle, start_pos);
+    if (p == std::string::npos || p >= end_pos) return def_val;
+    p += needle.size();
+    while (p < end_pos && (s[p] == ' ' || s[p] == '\t')) ++p;
+    size_t e = p;
+    while (e < end_pos && (std::isdigit(static_cast<unsigned char>(s[e])) || s[e] == '-' || s[e] == '+' || s[e] == '.' || s[e] == 'e' || s[e] == 'E')) {
+        ++e;
+    }
+    if (e == p) return def_val;
+    try {
+        return std::stod(s.substr(p, e - p));
+    } catch (...) {
+        return def_val;
+    }
+}
+
+SearchResults* RestClient::parse_search_results(const std::string& resp_json, const std::string& qtext) {
+    if (!host) throw dslvm::Error("RestClient has no Host");
+    last_from_cache = (resp_json.find("\"from_memory_cache\": true") != std::string::npos);
+    last_newly_embedded = static_cast<int64_t>(extract_json_num_at(resp_json, "lazy_newly_embedded", 0, resp_json.size(), 0.0));
+    last_cached_broad_hits = static_cast<int64_t>(extract_json_num_at(resp_json, "cached_broad_hits", 0, resp_json.size(), 0.0));
+
+    SearchResults* res = host->alloc_results();
+    res->query_text = qtext.empty() ? extract_json_str_at(resp_json, "query", 0, resp_json.size()) : qtext;
+    res->params = last_from_cache ? "view=memory_cache" : "source=lazy_index";
+
+    auto hits_pos = resp_json.find("\"hits\":");
+    if (hits_pos == std::string::npos) return res;
+    auto arr_start = resp_json.find('[', hits_pos);
+    if (arr_start == std::string::npos) return res;
+
+    size_t cur = arr_start + 1;
+    while (cur < resp_json.size()) {
+        auto obj_start = resp_json.find('{', cur);
+        if (obj_start == std::string::npos) break;
+        auto obj_end = resp_json.find('}', obj_start);
+        if (obj_end == std::string::npos) break;
+
+        int64_t rank = static_cast<int64_t>(extract_json_num_at(resp_json, "rank", obj_start, obj_end, 0.0));
+        int64_t id = static_cast<int64_t>(extract_json_num_at(resp_json, "id", obj_start, obj_end, 0.0));
+        double score = extract_json_num_at(resp_json, "score", obj_start, obj_end, 0.0);
+        double dist = extract_json_num_at(resp_json, "distance", obj_start, obj_end, 0.0);
+        std::string fpath = extract_json_str_at(resp_json, "path", obj_start, obj_end);
+        std::string fname = extract_json_str_at(resp_json, "filename", obj_start, obj_end);
+        std::string ext = extract_json_str_at(resp_json, "ext", obj_start, obj_end);
+        std::string snippet = extract_json_str_at(resp_json, "snippet", obj_start, obj_end);
+        int64_t fsize = static_cast<int64_t>(extract_json_num_at(resp_json, "size", obj_start, obj_end, static_cast<double>(snippet.size())));
+
+        Document* doc = host->alloc_doc(id, snippet);
+        if (!fpath.empty()) doc->fields["path"] = fpath;
+        if (!fname.empty()) doc->fields["filename"] = fname;
+        if (!ext.empty()) doc->fields["ext"] = ext;
+        doc->numbers["size"] = fsize;
+
+        SearchHit h;
+        h.rank = rank;
+        h.id = id;
+        h.score = score;
+        h.distance = dist;
+        h.doc = doc;
+        res->hits.push_back(host->alloc_hit(h));
+
+        cur = obj_end + 1;
+    }
+    return res;
 }
 
 } // namespace lmsearch

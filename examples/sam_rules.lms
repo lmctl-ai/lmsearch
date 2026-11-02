@@ -85,11 +85,7 @@ report("sam_top_id", str(res.at(0).id()));
 end _lmcode_
 
 mkdir("build");
-savedsl(program, "build/sam_rules.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --lmcode build/sam_rules.dslb;
-if (r.code != 0) {
-    print(r.stderr);
-}
-assert(r.code == 0, "sam_rules failed: " + r.stdout);
-print(r.stdout);
+r = run_lmcode(program, {command: [bin, "--save-dslb", "build/sam_rules.dslb", "--lmcode", "$DSLFILE"]});
+assert(r.ok, "examples/sam_rules.lms failed");
+println(json_stringify(r));

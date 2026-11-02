@@ -161,15 +161,30 @@ assert_true(ign_idx.add_file("build/ign_glob.tmp.md") == 0, "ign_glob.tmp.md mus
 assert_true(ign_idx.ntotal() == 1, "only 1 non-ignored file must be in ign_idx");
 assert_true(ign_idx.search_text("Vector search", 1).at(0).document().in_git(), "Document.in_git() must be true inside git repo");
 
+# 8. Lazy in-memory indexing + cached broad search hits + refined filter memory view
+let lazy_idx = flat_index(cached_model.output_dim(), Metric.COSINE)
+    .embedder(cached_model)
+    .weights_only_cache(true);
+assert_true(lazy_idx.add_lazy_path("README.md") == 1, "add_lazy_path(README.md) must register 1 candidate");
+assert_true(lazy_idx.add_lazy_path("durable-memory") >= 1, "add_lazy_path(durable-memory) must register candidates");
+assert_true(lazy_idx.lazy_embedded_count() == 0, "lazy index must have 0 embedded docs before first query");
+let broad_lazy = lazy_idx.lazy_query("ONNX and FAISS vector search", 5);
+assert_true(!lazy_idx.last_from_cache(), "first lazy_query must compute embeddings");
+assert_true(lazy_idx.last_newly_embedded() >= 2, "first lazy_query must embed candidate files");
+assert_true(lazy_idx.cached_hits_count() >= 2, "broad hits must be cached in memory");
+assert_true(broad_lazy.len() >= 2, "lazy_query must return broad hits");
+lazy_idx.filter_path_prefix("README").filter_text_contains("lmsearch");
+let refined_lazy = lazy_idx.refine_view(5);
+assert_true(lazy_idx.last_from_cache(), "refine_view must read from memory cache");
+assert_true(lazy_idx.last_newly_embedded() == 0, "refine_view must embed 0 new files");
+assert_true(refined_lazy.len() == 1, "refine_view must narrow cached hits to README.md");
+assert_true(refined_lazy.at(0).document().filename() == "README.md", "refine_view hit must be README.md");
+
 report("status", "all_assertions_passed");
 end _lmcode_
 
 mkdir("build");
-savedsl(program, "build/test.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --lmcode build/test.dslb;
-if (r.code != 0) {
-    print(r.stderr);
-}
-assert(r.code == 0, "test.lms failed: " + r.stdout);
-print(r.stdout);
+r = run_lmcode(program, {command: [bin, "--save-dslb", "build/test.dslb", "--lmcode", "$DSLFILE"]});
+assert(r.ok, "test.lms failed");
+println(json_stringify(r));

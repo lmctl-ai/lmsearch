@@ -131,11 +131,7 @@ idx.save("build/hairy_corpus.faiss");
 end _lmcode_
 
 mkdir("build");
-savedsl(program, "build/hairy_search_filters.dslb");
 bin = env("LMSEARCH_BIN", "./build/lmsearch");
-r = system ${[bin]} --lmcode build/hairy_search_filters.dslb;
-if (r.code != 0) {
-    print(r.stderr);
-}
-assert(r.code == 0, "hairy_search_filters.lms failed: " + r.stdout);
-print(r.stdout);
+r = run_lmcode(program, {command: [bin, "--save-dslb", "build/hairy_search_filters.dslb", "--lmcode", "$DSLFILE"]});
+assert(r.ok, "examples/hairy_search_filters.lms failed");
+println(json_stringify(r));
