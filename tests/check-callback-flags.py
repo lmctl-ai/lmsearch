@@ -8,7 +8,7 @@ import sys
 import tempfile
 
 binary = Path(sys.argv[1]).resolve()
-with tempfile.TemporaryDirectory(prefix='search callback flags ') as tmp:
+with tempfile.TemporaryDirectory(prefix='search-callback-flags-') as tmp:
     root = Path(tmp)
     source = root / 'input.txt'
     source.write_text('offline callback control')
