@@ -26,13 +26,13 @@ cmp -s <("$BIN" --schema --json | tr -d '\r') <(tr -d '\r' < cli.schema.latest.j
 diff -u <(lmscript --lmcode-signatures schema/lmsearch.dsl.json | tr -d '\r') <("$BIN" --lmcode-signatures | tr -d '\r')
 
 echo "==> 3. Running test.lms and examples/*.lms via lmscript"
-lmscript --no-preflight test.lms > build/test_out.json
+lmscript test.lms > build/test_out.json
 grep -qE '"ok": ?true' build/test_out.json
 grep -q '"all_assertions_passed"' build/test_out.json
 
 for ex in examples/*.lms; do
     echo "    running $ex"
-    lmscript --no-preflight "$ex" > "build/$(basename "$ex" .lms).out.json"
+    lmscript "$ex" > "build/$(basename "$ex" .lms).out.json"
     grep -qE '"ok": ?true' "build/$(basename "$ex" .lms).out.json"
 done
 
@@ -145,7 +145,7 @@ r = run_lmcode(p, {command: [bin, "--lmcode", "\$DSLFILE"]});
 assert(r.ok, "rest_client_dsl failed");
 println(json_stringify(r));
 EOF
-lmscript --no-preflight build/rest_client_dsl.lms > build/rest_client_dsl.out.json
+lmscript build/rest_client_dsl.lms > build/rest_client_dsl.out.json
 grep -q '"passed"' build/rest_client_dsl.out.json
 wait "$SERVE_PID"
 grep -q '"shutdown_reason": "client_shutdown"' build/serve_out.json
