@@ -39,5 +39,10 @@ with tempfile.TemporaryDirectory(prefix='search-callback-flags-') as tmp:
     assert fixture.returncode == 0, fixture
     for args in routes:
         r = subprocess.run([str(binary), *args, '--lmcode', str(missing)], env=env, capture_output=True)
-        assert r.returncode in (3, 4) and str(missing).encode() in r.stdout + r.stderr, r
+        try:
+            message = json.loads(r.stdout).get('message', '')
+        except (json.JSONDecodeError, AttributeError):
+            message = ''
+        path = message.split(':', 1)[-1].strip()
+        assert r.returncode in (3, 4) and Path(path).name == missing.name, r
 print('PASS index/search/run callback routes and published parameter names; no retired aliases')
