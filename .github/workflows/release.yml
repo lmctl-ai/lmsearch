@@ -17,7 +17,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-24.04, label: linux-x64, ext: ''}
+          # Build linux-x64 on 22.04 (glibc 2.35), not 24.04 (glibc 2.39).
+          # CXXFLAGS below static-link libstdc++ and libgcc but NOT glibc, so a
+          # 24.04-built binary demands GLIBC_2.36/2.38 and dies in the loader on
+          # any older host -- `--version` exits 1 before main(), which reads as a
+          # broken tool. glibc is backward compatible, so 2.35 runs on 2.35+.
+          # Not fully `-static`: lmsearch has serve/client subcommands and static
+          # glibc breaks getaddrinfo/NSS.
+          - {os: ubuntu-22.04, label: linux-x64, ext: ''}
           - {os: ubuntu-24.04-arm, label: linux-arm64, ext: ''}
           - {os: macos-15, label: macos-arm64, ext: ''}
           - {os: macos-15-intel, label: macos-x64, ext: ''}
