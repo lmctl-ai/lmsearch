@@ -566,7 +566,7 @@ std::string format_hits_array_json(const lmsearch::SearchResults* res) {
             std::string fpath;
             std::string fname;
             std::string fext;
-            std::string fsize;
+            int64_t fsize = h->doc ? static_cast<int64_t>(h->doc->text.size()) : 0;
             if (h->doc) {
                 auto it_p = h->doc->fields.find("path");
                 if (it_p != h->doc->fields.end()) fpath = it_p->second;
@@ -574,8 +574,15 @@ std::string format_hits_array_json(const lmsearch::SearchResults* res) {
                 if (it_f != h->doc->fields.end()) fname = it_f->second;
                 auto it_e = h->doc->fields.find("ext");
                 if (it_e != h->doc->fields.end()) fext = it_e->second;
-                auto it_s = h->doc->fields.find("size");
-                if (it_s != h->doc->fields.end()) fsize = it_s->second;
+                auto it_sn = h->doc->numbers.find("size");
+                if (it_sn != h->doc->numbers.end()) {
+                    fsize = it_sn->second;
+                } else {
+                    auto it_s = h->doc->fields.find("size");
+                    if (it_s != h->doc->fields.end() && !it_s->second.empty()) {
+                        try { fsize = std::stoll(it_s->second); } catch (...) {}
+                    }
+                }
             }
             std::string snippet = h->doc ? h->doc->text : "";
             if (snippet.size() > 160) snippet = snippet.substr(0, 160) + "...";
@@ -586,7 +593,7 @@ std::string format_hits_array_json(const lmsearch::SearchResults* res) {
                 << ", \"path\": " << dslvm::json_escape(fpath)
                 << ", \"filename\": " << dslvm::json_escape(fname)
                 << ", \"ext\": " << dslvm::json_escape(fext)
-                << ", \"size\": " << dslvm::json_escape(fsize)
+                << ", \"size\": " << fsize
                 << ", \"snippet\": " << dslvm::json_escape(snippet) << "}";
         }
     }

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <numeric>
 #include <sstream>
@@ -2247,6 +2248,7 @@ static std::string unescape_line_text(const std::string& s) {
 void FaissIndex::save_to_file(const std::string& path) const {
     std::ofstream out(std::filesystem::u8path(path), std::ios::binary);
     if (!out) throw dslvm::Error("save index: cannot open " + path);
+    out << std::setprecision(17);
     out << "LMSEARCH_FAISS_V1\n";
     out << dim << "\n" << index_key << "\n" << metric << "\n" << param_str << "\n";
     out << cur_nprobe << " " << cur_ef_search << " " << (is_trained ? 1 : 0) << "\n";
@@ -2490,11 +2492,37 @@ std::string RestClient::get(const std::string& path_and_query) {
     return last_response_json;
 }
 
+static size_t find_json_key_at(const std::string& s, const std::string& key, size_t start_pos, size_t end_pos) {
+    bool in_str = false;
+    size_t limit = std::min(end_pos, s.size());
+    for (size_t i = start_pos; i < limit; ++i) {
+        if (s[i] == '\\' && in_str) {
+            ++i;
+            continue;
+        }
+        if (s[i] == '"') {
+            if (!in_str) {
+                size_t k_end = i + 1 + key.size();
+                if (k_end < limit && s.compare(i + 1, key.size(), key) == 0 && s[k_end] == '"') {
+                    size_t colon = k_end + 1;
+                    while (colon < limit && (s[colon] == ' ' || s[colon] == '\t' || s[colon] == '\r' || s[colon] == '\n')) {
+                        ++colon;
+                    }
+                    if (colon < limit && s[colon] == ':') {
+                        return colon + 1;
+                    }
+                }
+            }
+            in_str = !in_str;
+        }
+    }
+    return std::string::npos;
+}
+
 static std::string extract_json_str_at(const std::string& s, const std::string& key, size_t start_pos, size_t end_pos) {
-    std::string needle = "\"" + key + "\":";
-    auto p = s.find(needle, start_pos);
+    size_t p = find_json_key_at(s, key, start_pos, end_pos);
     if (p == std::string::npos || p >= end_pos) return "";
-    p = s.find('"', p + needle.size());
+    p = s.find('"', p);
     if (p == std::string::npos || p >= end_pos) return "";
     std::string out;
     for (size_t i = p + 1; i < end_pos && i < s.size(); ++i) {
@@ -2514,11 +2542,10 @@ static std::string extract_json_str_at(const std::string& s, const std::string& 
 }
 
 static double extract_json_num_at(const std::string& s, const std::string& key, size_t start_pos, size_t end_pos, double def_val = 0.0) {
-    std::string needle = "\"" + key + "\":";
-    auto p = s.find(needle, start_pos);
+    size_t p = find_json_key_at(s, key, start_pos, end_pos);
     if (p == std::string::npos || p >= end_pos) return def_val;
-    p += needle.size();
-    while (p < end_pos && (s[p] == ' ' || s[p] == '\t')) ++p;
+    while (p < end_pos && (s[p] == ' ' || s[p] == '\t' || s[p] == '\r' || s[p] == '\n')) ++p;
+    if (p < end_pos && s[p] == '"') ++p;
     size_t e = p;
     while (e < end_pos && (std::isdigit(static_cast<unsigned char>(s[e])) || s[e] == '-' || s[e] == '+' || s[e] == '.' || s[e] == 'e' || s[e] == 'E')) {
         ++e;
@@ -2531,6 +2558,31 @@ static double extract_json_num_at(const std::string& s, const std::string& key, 
     }
 }
 
+static size_t find_matching_json_delim(const std::string& s, size_t open_pos, char open_ch, char close_ch) {
+    if (open_pos >= s.size() || s[open_pos] != open_ch) return std::string::npos;
+    int depth = 0;
+    bool in_str = false;
+    for (size_t i = open_pos; i < s.size(); ++i) {
+        if (s[i] == '\\' && in_str) {
+            ++i;
+            continue;
+        }
+        if (s[i] == '"') {
+            in_str = !in_str;
+            continue;
+        }
+        if (!in_str) {
+            if (s[i] == open_ch) {
+                ++depth;
+            } else if (s[i] == close_ch) {
+                --depth;
+                if (depth == 0) return i;
+            }
+        }
+    }
+    return std::string::npos;
+}
+
 SearchResults* RestClient::parse_search_results(const std::string& resp_json, const std::string& qtext) {
     if (!host) throw dslvm::Error("RestClient has no Host");
     last_from_cache = (resp_json.find("\"from_memory_cache\": true") != std::string::npos);
@@ -2541,27 +2593,42 @@ SearchResults* RestClient::parse_search_results(const std::string& resp_json, co
     res->query_text = qtext.empty() ? extract_json_str_at(resp_json, "query", 0, resp_json.size()) : qtext;
     res->params = last_from_cache ? "view=memory_cache" : "source=lazy_index";
 
-    auto hits_pos = resp_json.find("\"hits\":");
+    auto hits_pos = find_json_key_at(resp_json, "hits", 0, resp_json.size());
     if (hits_pos == std::string::npos) return res;
     auto arr_start = resp_json.find('[', hits_pos);
     if (arr_start == std::string::npos) return res;
+    auto arr_end = find_matching_json_delim(resp_json, arr_start, '[', ']');
+    if (arr_end == std::string::npos) arr_end = resp_json.size();
 
     size_t cur = arr_start + 1;
-    while (cur < resp_json.size()) {
-        auto obj_start = resp_json.find('{', cur);
+    while (cur < arr_end) {
+        bool in_str = false;
+        size_t obj_start = std::string::npos;
+        for (size_t i = cur; i < arr_end; ++i) {
+            if (resp_json[i] == '\\' && in_str) {
+                ++i;
+                continue;
+            }
+            if (resp_json[i] == '"') {
+                in_str = !in_str;
+            } else if (!in_str && resp_json[i] == '{') {
+                obj_start = i;
+                break;
+            }
+        }
         if (obj_start == std::string::npos) break;
-        auto obj_end = resp_json.find('}', obj_start);
-        if (obj_end == std::string::npos) break;
+        auto obj_end = find_matching_json_delim(resp_json, obj_start, '{', '}');
+        if (obj_end == std::string::npos || obj_end > arr_end) break;
 
-        int64_t rank = static_cast<int64_t>(extract_json_num_at(resp_json, "rank", obj_start, obj_end, 0.0));
-        int64_t id = static_cast<int64_t>(extract_json_num_at(resp_json, "id", obj_start, obj_end, 0.0));
-        double score = extract_json_num_at(resp_json, "score", obj_start, obj_end, 0.0);
-        double dist = extract_json_num_at(resp_json, "distance", obj_start, obj_end, 0.0);
-        std::string fpath = extract_json_str_at(resp_json, "path", obj_start, obj_end);
-        std::string fname = extract_json_str_at(resp_json, "filename", obj_start, obj_end);
-        std::string ext = extract_json_str_at(resp_json, "ext", obj_start, obj_end);
-        std::string snippet = extract_json_str_at(resp_json, "snippet", obj_start, obj_end);
-        int64_t fsize = static_cast<int64_t>(extract_json_num_at(resp_json, "size", obj_start, obj_end, static_cast<double>(snippet.size())));
+        int64_t rank = static_cast<int64_t>(extract_json_num_at(resp_json, "rank", obj_start, obj_end + 1, 0.0));
+        int64_t id = static_cast<int64_t>(extract_json_num_at(resp_json, "id", obj_start, obj_end + 1, 0.0));
+        double score = extract_json_num_at(resp_json, "score", obj_start, obj_end + 1, 0.0);
+        double dist = extract_json_num_at(resp_json, "distance", obj_start, obj_end + 1, 0.0);
+        std::string fpath = extract_json_str_at(resp_json, "path", obj_start, obj_end + 1);
+        std::string fname = extract_json_str_at(resp_json, "filename", obj_start, obj_end + 1);
+        std::string ext = extract_json_str_at(resp_json, "ext", obj_start, obj_end + 1);
+        std::string snippet = extract_json_str_at(resp_json, "snippet", obj_start, obj_end + 1);
+        int64_t fsize = static_cast<int64_t>(extract_json_num_at(resp_json, "size", obj_start, obj_end + 1, static_cast<double>(snippet.size())));
 
         Document* doc = host->alloc_doc(id, snippet);
         if (!fpath.empty()) doc->fields["path"] = fpath;

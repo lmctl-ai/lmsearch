@@ -88,7 +88,8 @@ grep -q '"rerank_rule": "multi_signal_rerank"' build/cli_hairy_search.json
 
 echo "==> 8. Verifying REST server (single-user global session, lazy memory index, refined filter view, client shutdown & idle timeout)"
 rm -f build/serve.port build/serve_out.json build/serve_timeout.port build/serve_timeout_out.json
-"$BIN" serve README.md durable-memory \
+printf 'Vector search snippet with braces {"nested": "{inner}", "id": 999} for RestClient JSON parser regression.\n' > build/brace_doc.md
+"$BIN" serve README.md durable-memory build/brace_doc.md \
     --port 0 --port-file build/serve.port --timeout 30 --weights-only-cache \
     --model all-MiniLM-L6-v2 --cache-dir build/cli_model_cache > build/serve_out.json &
 SERVE_PID=$!
@@ -131,12 +132,18 @@ c.clear_filter();
 let qres = c.query("ONNX and FAISS vector search", 5);
 assert_true(!c.from_cache(), "RestClient.query must not be from cache");
 assert_true(qres.len() >= 2, "RestClient.query must return >= 2 hits");
+c.filter_ext(".md").filter_path_prefix("build/brace_doc").filter_text_contains("RestClient");
+let bres = c.requery(5);
+assert_true(bres.len() == 1, "RestClient.requery for brace_doc must return 1 hit without splitting on braces");
+assert_true(str_contains(bres.at(0).document().text(), "{inner}"), "RestClient must preserve braces inside snippet");
+c.clear_filter();
 c.filter_ext(".md").filter_path_prefix("README").filter_text_contains("lmsearch");
 let vres = c.requery(5);
 assert_true(c.from_cache(), "RestClient.requery must come from server memory cache");
 assert_true(c.newly_embedded() == 0, "RestClient.requery must embed 0 new files");
 assert_true(vres.len() == 1, "RestClient.requery must return 1 filtered hit");
 assert_true(vres.at(0).document().filename() == "README.md", "RestClient.requery hit must be README.md");
+assert_true(vres.at(0).document().size() > 200, "RestClient.requery hit must report full file size in bytes");
 assert_true(c.shutdown(), "RestClient.shutdown must return true");
 report("rest_client_dsl", "passed");
 end _lmcode_
