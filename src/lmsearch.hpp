@@ -2,10 +2,31 @@
 
 #include "dslvm.hpp"
 #include <cstdint>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+
+namespace dslvm {
+inline int report_ok(const std::string& result_json = "null") {
+    std::cout << "{\"ok\": true, \"result\": " << result_json << "}" << std::endl;
+    return 0;
+}
+inline int report_error(const std::string& phase, const Error& e) {
+    std::cout << "{\"ok\": false, \"phase\": " << json_escape(phase) << ", \"code\": " << json_escape(e.code)
+              << ", \"message\": " << json_escape(e.what());
+    if (e.has_location) {
+        std::cout << ", \"line\": " << e.line;
+        if (e.has_column) std::cout << ", \"column\": " << e.column;
+    }
+    std::cout << "}" << std::endl;
+    return e.code == "APP_FAIL" ? 4 : 3;
+}
+inline int report_app_failure(const std::string& message) {
+    return report_error("app", Error("APP_FAIL", message));
+}
+} // namespace dslvm
 
 namespace lmsearch {
 
@@ -229,6 +250,7 @@ struct RestClient {
 struct Host {
     dslvm::Registry registry;
     dslvm::stdlib::Collections cb_collections;
+    dslvm::ResultSink* cb_result_sink = nullptr;
     std::string bytecode_bytes;
     std::string schema_bytes;
     bool in_callback = false;

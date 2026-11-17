@@ -608,7 +608,7 @@ inline const char *kind(const JsonNode &n) {
 }
 } // namespace json_detail
 inline Registry &register_json(Registry &r, Collections &arena) {
-  r.function("json_parse", {"string"}, "Json", [&arena](Args &a) {
+  pure_std_function(r, "json_parse", {"string"}, "Json", [&arena](Args &a) {
     json_detail::utf8(a[0].s);
     if (a[0].s.rfind("\xEF\xBB\xBF", 0) == 0)
       json_detail::fail("BOM is not allowed", 0);
@@ -621,14 +621,14 @@ inline Registry &register_json(Registry &r, Collections &arena) {
     root->node = std::move(parsed);
     return Value::object("Json", &root->node);
   });
-  r.function("template_render", {"string", "Json"}, "string", [](Args &a) {
+  pure_std_function(r, "template_render", {"string", "Json"}, "string", [](Args &a) {
     auto &context = *static_cast<JsonNode *>(a[1].obj);
     if (context.kind != JsonNode::Kind::Object)
       throw Error("template_render: context must be an object");
     return Value::string(json_detail::render_template(a[0].s, context));
   });
 #define JSON_METHOD(name, params, ret, body)                                   \
-  r.method("Json", name, params, ret, [](void *p, Args &a) {                   \
+  pure_std_method(r, "Json", name, params, ret, [](void *p, Args &a) {                   \
     (void)a;                                                                   \
     body                                                                       \
   })
@@ -669,7 +669,7 @@ inline Registry &register_json(Registry &r, Collections &arena) {
         return Value::boolean(true);
     return Value::boolean(false);
   });
-  r.method("Json", "keys", {}, "StrList", [&arena](void *p, Args &) {
+  pure_std_method(r, "Json", "keys", {}, "StrList", [&arena](void *p, Args &) {
     auto &n = *static_cast<JsonNode *>(p);
     if (n.kind != JsonNode::Kind::Object)
       throw Error("Json.keys: expected object");

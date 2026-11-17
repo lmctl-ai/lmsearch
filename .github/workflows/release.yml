@@ -42,7 +42,7 @@ jobs:
           node-version: '24'
       - name: Compiler and native toolchain
         run: |
-          npm install -g @lmctl-ai/lmctl
+          npm install -g @lmctl-ai/lmctl@0.2.482
           if [[ "$RUNNER_OS" == Windows ]]; then
             if ! command -v g++ >/dev/null || ! command -v make >/dev/null; then choco install -y mingw make; fi
             mkdir -p .ci-bin

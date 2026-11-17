@@ -122,7 +122,7 @@ inline Value lines_value(Collections& arena, const std::string& bytes) {
 
 inline Registry& register_file(Registry& r, Collections& arena) {
   if (r.has_std()) return r;
-  r.function("file_read", {"string"}, "string", [](Args& a) {
+  read_std_function(r, "file_read", {"string"}, "string", [](Args& a) {
     const auto& path = a[0].s;
     return Value::string(file_detail::read_path(file_detail::native_path("file_read", path), path, "file_read"));
   });
@@ -136,7 +136,7 @@ inline Registry& register_file(Registry& r, Collections& arena) {
     file_detail::write_path(file_detail::native_path("file_append", path), a[1].s, path, "file_append", std::ios::app);
     return Value::none();
   });
-  r.function("file_exists", {"string"}, "bool", [](Args& a) {
+  read_std_function(r, "file_exists", {"string"}, "bool", [](Args& a) {
     const auto& path = a[0].s;
     if (path.empty()) return Value::boolean(false);
     auto native = file_detail::native_path("file_exists", path);
@@ -146,7 +146,7 @@ inline Registry& register_file(Registry& r, Collections& arena) {
     if (ec == std::errc::no_such_file_or_directory || ec == std::errc::not_a_directory) return Value::boolean(false);
     throw file_detail::failure("file_exists", path, ec.message());
   });
-  r.function("file_lines", {"string"}, "StrList", [&arena](Args& a) {
+  read_std_function(r, "file_lines", {"string"}, "StrList", [&arena](Args& a) {
     const auto& path = a[0].s;
     auto native = file_detail::native_path("file_lines", path);
     return file_detail::lines_value(arena, file_detail::read_path(native, path, "file_lines"));

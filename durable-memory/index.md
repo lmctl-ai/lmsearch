@@ -14,7 +14,7 @@ Start here before changing `lmsearch`.
 
 | Path | Role |
 |---|---|
-| `schema/lmsearch.dsl.json` | Merged `dsl.v1` schema (`lmcode-std` + `lmsearch` domain types, functions, methods, enums, and 5 SAM interfaces) |
+| `schema/lmsearch.dsl.json` | Merged `dsl.schema: 2` schema (`lmcode_std_v3` 226 signatures + 10 standard REST/CLI interfaces + `lmsearch` domain types, functions, methods, enums, and 8 SAM interfaces) |
 | `cli.schema.latest.json` | `cli.schema.v1` operational contract (`run`, `--dryrun`, `--readonly`) |
 | `src/lmsearch.hpp` | Host domain structs (`OnnxModel`, `Document`, `AutoTuner`, `AutoPlan`, `FaissIndex`, `SearchResults`, `SearchHit`, `IndexMetrics`, `Host`) |
 | `src/engine.cpp` | ONNX embedding runtime, AutoFaiss C++ planner/autotuner, and FAISS index engine (with optional `LMSEARCH_WITH_UPSTREAM_FAISS_ONNX` static-link bridge) |

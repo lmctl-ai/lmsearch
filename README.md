@@ -28,6 +28,8 @@
 | `@filter` | `VectorFilter` | `(int, Document) -> bool` | Programmable `faiss::IDSelector` predicate during FAISS search |
 | `@rerank` | `Reranker` | `(SearchHit, string) -> float` | Rescores candidate FAISS hits using document fields and query text |
 | `@audit` | `AuditRule` | `(IndexMetrics) -> void` | Post-run quality gate invoked on every evaluated `IndexMetrics` |
+| `@"/path"` | `RestGet`..`RestOptions`, `RestHandler` | `(RestExchange) -> void` | Standard `lmcode_std_v3` REST endpoint handlers (`:param` / `{param}` route templates) |
+| `@"cmd/:arg"` / `@"--opt"` | `CliCommand`, `CliOption` | `(RestExchange) -> void` | Standard `lmcode_std_v3` stateless CLI subcommand and option handlers (`rest_cli`) |
 
 ## Quick Start
 
@@ -52,6 +54,7 @@ lmscript examples/file_and_dir_search.lms
 lmscript examples/hairy_search_filters.lms
 lmscript examples/autofaiss_tuning.lms
 lmscript examples/sam_rules.lms
+lmscript examples/std_rest_cli.lms
 lmscript examples/persistence_and_quantization.lms
 ```
 

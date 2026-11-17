@@ -64,36 +64,36 @@ template <class T>
 inline void map(Registry &r, const std::string &t, const std::string &et) {
   using M = TypedMap<T>;
   using X = CollectionValue<T>;
-  r.method(t, "len", {}, "int", [](void *p, Args &) {
+  pure_std_method(r, t, "len", {}, "int", [](void *p, Args &) {
     return Value::integer(
         static_cast<int64_t>(static_cast<M *>(p)->items.size()));
   });
-  r.method(t, "has", {"string"}, "bool", [](void *p, Args &a) {
+  pure_std_method(r, t, "has", {"string"}, "bool", [](void *p, Args &a) {
     return Value::boolean(static_cast<M *>(p)->index.count(a[0].s));
   });
-  r.method(t, "get", {"string"}, et, [t](void *p, Args &a) {
+  pure_std_method(r, t, "get", {"string"}, et, [t](void *p, Args &a) {
     auto &m = *static_cast<M *>(p);
     auto i = m.index.find(a[0].s);
     if (i == m.index.end())
       throw Error(t + ".get: missing key");
     return X::put(m.items[i->second].second);
   });
-  r.method(t, "get_or", {"string", et}, et, [](void *p, Args &a) {
+  pure_std_method(r, t, "get_or", {"string", et}, et, [](void *p, Args &a) {
     auto &m = *static_cast<M *>(p);
     auto i = m.index.find(a[0].s);
     return i == m.index.end() ? a[1] : X::put(m.items[i->second].second);
   });
-  r.method(t, "set", {"string", et}, t, [t](void *p, Args &a) {
+  pure_std_method(r, t, "set", {"string", et}, t, [t](void *p, Args &a) {
     auto &m = *static_cast<M *>(p);
     m.set(a[0].s, X::get(a[1]));
     return Value::object(t, p);
   });
-  r.method(t, "key_at", {"int"}, "string", [t](void *p, Args &a) {
+  pure_std_method(r, t, "key_at", {"int"}, "string", [t](void *p, Args &a) {
     auto &m = *static_cast<M *>(p);
     auto i = collection_index(a[0].i, m.items.size(), t + ".key_at");
     return Value::string(m.items[i].first);
   });
-  r.method(t, "remove", {"string"}, "bool", [](void *p, Args &a) {
+  pure_std_method(r, t, "remove", {"string"}, "bool", [](void *p, Args &a) {
     auto &m = *static_cast<M *>(p);
     auto i = m.index.find(a[0].s);
     if (i == m.index.end())
@@ -105,7 +105,7 @@ inline void map(Registry &r, const std::string &t, const std::string &et) {
       m.index[m.items[j].first] = j;
     return Value::boolean(true);
   });
-  r.method(t, "clear", {}, t, [t](void *p, Args &) {
+  pure_std_method(r, t, "clear", {}, t, [t](void *p, Args &) {
     static_cast<M *>(p)->clear();
     return Value::object(t, p);
   });
@@ -113,13 +113,13 @@ inline void map(Registry &r, const std::string &t, const std::string &et) {
 template <class T>
 inline void map_snapshots(Registry &r, const std::string &t, Collections &a) {
   using M = TypedMap<T>;
-  r.method(t, "keys", {}, "StrList", [&a](void *p, Args &) {
+  pure_std_method(r, t, "keys", {}, "StrList", [&a](void *p, Args &) {
     auto &m = *static_cast<M *>(p);
     std::vector<std::string> values; values.reserve(m.items.size());
     for (const auto &item : m.items) values.push_back(item.first);
     return Value::object("StrList", a.make_str_list(std::move(values)));
   });
-  r.method(t, "values", {}, std::is_same_v<T, std::string> ? "StrList" : (std::is_same_v<T, int64_t> ? "IntList" : "FloatList"), [&a](void *p, Args &) {
+  pure_std_method(r, t, "values", {}, std::is_same_v<T, std::string> ? "StrList" : (std::is_same_v<T, int64_t> ? "IntList" : "FloatList"), [&a](void *p, Args &) {
     auto &m = *static_cast<M *>(p);
     if constexpr (std::is_same_v<T, std::string>) {
       std::vector<std::string> values; values.reserve(m.items.size());
@@ -140,11 +140,11 @@ template <class T>
 inline void stack(Registry &r, const std::string &t, const std::string &et) {
   using S = Stack<T>;
   using X = CollectionValue<T>;
-  r.method(t, "push", {et}, t, [t](void *p, Args &a) {
+  pure_std_method(r, t, "push", {et}, t, [t](void *p, Args &a) {
     static_cast<S *>(p)->items.push_back(X::get(a[0]));
     return Value::object(t, p);
   });
-  r.method(t, "pop", {}, et, [t](void *p, Args &) {
+  pure_std_method(r, t, "pop", {}, et, [t](void *p, Args &) {
     auto &s = *static_cast<S *>(p);
     if (s.items.empty())
       throw Error(t + ".pop: empty");
@@ -152,23 +152,23 @@ inline void stack(Registry &r, const std::string &t, const std::string &et) {
     s.items.pop_back();
     return X::put(v);
   });
-  r.method(t, "peek", {}, et, [t](void *p, Args &) {
+  pure_std_method(r, t, "peek", {}, et, [t](void *p, Args &) {
     auto &s = *static_cast<S *>(p);
     if (s.items.empty())
       throw Error(t + ".peek: empty");
     return X::put(s.items.back());
   });
-  r.method(t, "len", {}, "int", [](void *p, Args &) {
+  pure_std_method(r, t, "len", {}, "int", [](void *p, Args &) {
     return Value::integer((int64_t) static_cast<S *>(p)->items.size());
   });
-  r.method(t, "empty", {}, "bool", [](void *p, Args &) {
+  pure_std_method(r, t, "empty", {}, "bool", [](void *p, Args &) {
     return Value::boolean(static_cast<S *>(p)->items.empty());
   });
-  r.method(t, "clear", {}, t, [t](void *p, Args &) {
+  pure_std_method(r, t, "clear", {}, t, [t](void *p, Args &) {
     static_cast<S *>(p)->items.clear();
     return Value::object(t, p);
   });
-  r.method(t, "at", {"int"}, et, [t](void *p, Args &a) {
+  pure_std_method(r, t, "at", {"int"}, et, [t](void *p, Args &a) {
     auto &s = *static_cast<S *>(p);
     auto i = collection_index(a[0].i, s.items.size(), t + ".at");
     return X::put(s.items[s.items.size() - 1 - i]);
@@ -178,11 +178,11 @@ template <class T>
 inline void queue(Registry &r, const std::string &t, const std::string &et) {
   using Q = Queue<T>;
   using X = CollectionValue<T>;
-  r.method(t, "push", {et}, t, [t](void *p, Args &a) {
+  pure_std_method(r, t, "push", {et}, t, [t](void *p, Args &a) {
     static_cast<Q *>(p)->items.push_back(X::get(a[0]));
     return Value::object(t, p);
   });
-  r.method(t, "pop", {}, et, [t](void *p, Args &) {
+  pure_std_method(r, t, "pop", {}, et, [t](void *p, Args &) {
     auto &q = *static_cast<Q *>(p);
     if (q.items.empty())
       throw Error(t + ".pop: empty");
@@ -190,23 +190,23 @@ inline void queue(Registry &r, const std::string &t, const std::string &et) {
     q.items.pop_front();
     return X::put(v);
   });
-  r.method(t, "peek", {}, et, [t](void *p, Args &) {
+  pure_std_method(r, t, "peek", {}, et, [t](void *p, Args &) {
     auto &q = *static_cast<Q *>(p);
     if (q.items.empty())
       throw Error(t + ".peek: empty");
     return X::put(q.items.front());
   });
-  r.method(t, "len", {}, "int", [](void *p, Args &) {
+  pure_std_method(r, t, "len", {}, "int", [](void *p, Args &) {
     return Value::integer((int64_t) static_cast<Q *>(p)->items.size());
   });
-  r.method(t, "empty", {}, "bool", [](void *p, Args &) {
+  pure_std_method(r, t, "empty", {}, "bool", [](void *p, Args &) {
     return Value::boolean(static_cast<Q *>(p)->items.empty());
   });
-  r.method(t, "clear", {}, t, [t](void *p, Args &) {
+  pure_std_method(r, t, "clear", {}, t, [t](void *p, Args &) {
     static_cast<Q *>(p)->items.clear();
     return Value::object(t, p);
   });
-  r.method(t, "at", {"int"}, et, [t](void *p, Args &a) {
+  pure_std_method(r, t, "at", {"int"}, et, [t](void *p, Args &a) {
     auto &q = *static_cast<Q *>(p);
     return X::put(q.items[collection_index(a[0].i, q.items.size(), t + ".at")]);
   });
@@ -219,7 +219,7 @@ inline void pq(Registry &r, const std::string &t, const std::string &et) {
     return a.priority > b.priority ||
            (a.priority == b.priority && a.sequence > b.sequence);
   };
-  r.method(t, "push", {et, "float"}, t, [t, worse](void *p, Args &a) {
+  pure_std_method(r, t, "push", {et, "float"}, t, [t, worse](void *p, Args &a) {
     auto &q = *static_cast<P *>(p);
     if (!std::isfinite(a[1].f))
       throw Error(t + ".push: priority must be finite");
@@ -231,13 +231,13 @@ inline void pq(Registry &r, const std::string &t, const std::string &et) {
     q.next_sequence = sequence + 1;
     return Value::object(t, p);
   });
-  r.method(t, "peek", {}, et, [t](void *p, Args &) {
+  pure_std_method(r, t, "peek", {}, et, [t](void *p, Args &) {
     auto &q = *static_cast<P *>(p);
     if (q.items.empty())
       throw Error(t + ".peek: empty");
     return X::put(q.items.front().value);
   });
-  r.method(t, "pop", {}, et, [t, worse](void *p, Args &) {
+  pure_std_method(r, t, "pop", {}, et, [t, worse](void *p, Args &) {
     auto &q = *static_cast<P *>(p);
     if (q.items.empty())
       throw Error(t + ".pop: empty");
@@ -246,13 +246,13 @@ inline void pq(Registry &r, const std::string &t, const std::string &et) {
     q.items.pop_back();
     return X::put(v);
   });
-  r.method(t, "len", {}, "int", [](void *p, Args &) {
+  pure_std_method(r, t, "len", {}, "int", [](void *p, Args &) {
     return Value::integer((int64_t) static_cast<P *>(p)->items.size());
   });
-  r.method(t, "empty", {}, "bool", [](void *p, Args &) {
+  pure_std_method(r, t, "empty", {}, "bool", [](void *p, Args &) {
     return Value::boolean(static_cast<P *>(p)->items.empty());
   });
-  r.method(t, "clear", {}, t, [t](void *p, Args &) {
+  pure_std_method(r, t, "clear", {}, t, [t](void *p, Args &) {
     auto &q = *static_cast<P *>(p);
     q.items.clear();
     q.next_sequence = 0;
@@ -274,37 +274,37 @@ inline Registry &register_containers(Registry &r, Collections &a) {
   detail::pq<int64_t>(r, "IntPQ", "int");
   detail::pq<double>(r, "FloatPQ", "float");
   detail::pq<std::string>(r, "StrPQ", "string");
-  r.function("int_map", {}, "IntMap", [&a](Args &) {
+  pure_std_function(r, "int_map", {}, "IntMap", [&a](Args &) {
     return Value::object("IntMap", a.make_object<IntMap>("IntMap"));
   });
-  r.function("float_map", {}, "FloatMap", [&a](Args &) {
+  pure_std_function(r, "float_map", {}, "FloatMap", [&a](Args &) {
     return Value::object("FloatMap", a.make_object<FloatMap>("FloatMap"));
   });
-  r.function("int_stack", {}, "IntStack", [&a](Args &) {
+  pure_std_function(r, "int_stack", {}, "IntStack", [&a](Args &) {
     return Value::object("IntStack", a.make_object<IntStack>("IntStack"));
   });
-  r.function("float_stack", {}, "FloatStack", [&a](Args &) {
+  pure_std_function(r, "float_stack", {}, "FloatStack", [&a](Args &) {
     return Value::object("FloatStack", a.make_object<FloatStack>("FloatStack"));
   });
-  r.function("str_stack", {}, "StrStack", [&a](Args &) {
+  pure_std_function(r, "str_stack", {}, "StrStack", [&a](Args &) {
     return Value::object("StrStack", a.make_object<StrStack>("StrStack"));
   });
-  r.function("int_queue", {}, "IntQueue", [&a](Args &) {
+  pure_std_function(r, "int_queue", {}, "IntQueue", [&a](Args &) {
     return Value::object("IntQueue", a.make_object<IntQueue>("IntQueue"));
   });
-  r.function("float_queue", {}, "FloatQueue", [&a](Args &) {
+  pure_std_function(r, "float_queue", {}, "FloatQueue", [&a](Args &) {
     return Value::object("FloatQueue", a.make_object<FloatQueue>("FloatQueue"));
   });
-  r.function("str_queue", {}, "StrQueue", [&a](Args &) {
+  pure_std_function(r, "str_queue", {}, "StrQueue", [&a](Args &) {
     return Value::object("StrQueue", a.make_object<StrQueue>("StrQueue"));
   });
-  r.function("int_pq", {}, "IntPQ", [&a](Args &) {
+  pure_std_function(r, "int_pq", {}, "IntPQ", [&a](Args &) {
     return Value::object("IntPQ", a.make_object<IntPQ>("IntPQ"));
   });
-  r.function("float_pq", {}, "FloatPQ", [&a](Args &) {
+  pure_std_function(r, "float_pq", {}, "FloatPQ", [&a](Args &) {
     return Value::object("FloatPQ", a.make_object<FloatPQ>("FloatPQ"));
   });
-  r.function("str_pq", {}, "StrPQ", [&a](Args &) {
+  pure_std_function(r, "str_pq", {}, "StrPQ", [&a](Args &) {
     return Value::object("StrPQ", a.make_object<StrPQ>("StrPQ"));
   });
   return r;

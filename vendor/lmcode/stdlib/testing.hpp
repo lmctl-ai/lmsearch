@@ -47,11 +47,11 @@ inline void testing_assert_close(double a, double b, double tolerance) {
 
 inline Registry& register_testing(Registry& r, std::ostream* sink = nullptr) {
   std::ostream* output = sink ? sink : &std::cout;
-  r.function("print", {"string"}, "void", [output](Args& a) {
+  pure_std_function(r, "print", {"string"}, "void", [output](Args& a) {
     testing_print(*output, a[0].s);
     return Value::none();
   });
-  r.function("assert_close", {"float", "float", "float"}, "void", [](Args& a) {
+  pure_std_function(r, "assert_close", {"float", "float", "float"}, "void", [](Args& a) {
     testing_assert_close(a[0].f, a[1].f, a[2].f);
     return Value::none();
   });

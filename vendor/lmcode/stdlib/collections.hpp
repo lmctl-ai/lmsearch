@@ -8,6 +8,7 @@
 #endif
 #include <algorithm>
 #include <deque>
+#include <limits>
 #include <utility>
 #include <vector>
 #include <unordered_map>
@@ -91,22 +92,26 @@ struct Collections {
   std::deque<IntList> int_lists;
   std::deque<FloatList> float_lists;
   std::deque<StrMap> str_maps;
-  size_t size() const { return objects.size() + str_lists.size() + int_lists.size() + float_lists.size() + str_maps.size(); }
-  void reset() { objects.clear(); str_lists.clear(); int_lists.clear(); float_lists.clear(); str_maps.clear(); }
-  void reserve_object(const char* type) const {
-    if (size() >= 65536) throw Error(std::string(type) + " object limit exceeded (65536)");
+  size_t size() const {
+    size_t total = 0;
+    const size_t max_size = std::numeric_limits<size_t>::max();
+    for (size_t count : {objects.size(), str_lists.size(), int_lists.size(), float_lists.size(), str_maps.size()}) {
+      if (count > max_size - total) throw Error("collection object count exceeds size_t capacity");
+      total += count;
+    }
+    return total;
   }
-  template<class T, class... Args> T* make_object(const char* type, Args&&... args) {
-    reserve_object(type);
+  void reset() { objects.clear(); str_lists.clear(); int_lists.clear(); float_lists.clear(); str_maps.clear(); }
+  template<class T, class... Args> T* make_object(const char*, Args&&... args) try {
     auto value = std::make_shared<T>(std::forward<Args>(args)...);
     auto* pointer = value.get();
     objects.push_back(std::move(value));
     return pointer;
-  }
-  StrList* make_str_list(std::vector<std::string> values = {}) { reserve_object("StrList"); str_lists.push_back({std::move(values)}); return &str_lists.back(); }
-  IntList* make_int_list(std::vector<int64_t> values = {}) { reserve_object("IntList"); int_lists.push_back({std::move(values)}); return &int_lists.back(); }
-  FloatList* make_float_list(std::vector<double> values = {}) { reserve_object("FloatList"); float_lists.push_back({std::move(values)}); return &float_lists.back(); }
-  StrMap* make_str_map() { reserve_object("StrMap"); str_maps.emplace_back(); return &str_maps.back(); }
+  } catch (const std::bad_alloc&) { throw Error("collection allocation failed"); } catch (const std::length_error&) { throw Error("collection allocation exceeds platform capacity"); }
+  StrList* make_str_list(std::vector<std::string> values = {}) try { str_lists.push_back({std::move(values)}); return &str_lists.back(); } catch (const std::bad_alloc&) { throw Error("collection allocation failed"); } catch (const std::length_error&) { throw Error("collection allocation exceeds platform capacity"); }
+  IntList* make_int_list(std::vector<int64_t> values = {}) try { int_lists.push_back({std::move(values)}); return &int_lists.back(); } catch (const std::bad_alloc&) { throw Error("collection allocation failed"); } catch (const std::length_error&) { throw Error("collection allocation exceeds platform capacity"); }
+  FloatList* make_float_list(std::vector<double> values = {}) try { float_lists.push_back({std::move(values)}); return &float_lists.back(); } catch (const std::bad_alloc&) { throw Error("collection allocation failed"); } catch (const std::length_error&) { throw Error("collection allocation exceeds platform capacity"); }
+  StrMap* make_str_map() try { str_maps.emplace_back(); return &str_maps.back(); } catch (const std::bad_alloc&) { throw Error("collection allocation failed"); } catch (const std::length_error&) { throw Error("collection allocation exceeds platform capacity"); }
 };
 
 namespace detail {
@@ -129,27 +134,27 @@ template<> struct CollectionValue<double> {
 };
 template<class T> inline void register_collection_list(Registry& r, const std::string& type, const std::string& element) {
   using List = CollectionList<T>; using Codec = CollectionValue<T>;
-  r.method(type, "len", {}, "int", [](void* p, Args&) { return Value::integer(int64_t(static_cast<List*>(p)->items.size())); });
-  r.method(type, "at", {"int"}, element, [type](void* p, Args& a) {
+  pure_std_method(r, type, "len", {}, "int", [](void* p, Args&) { return Value::integer(int64_t(static_cast<List*>(p)->items.size())); });
+  pure_std_method(r, type, "at", {"int"}, element, [type](void* p, Args& a) {
     auto& items = static_cast<List*>(p)->items;
     return Codec::put(items[collection_index(a[0].i, items.size(), type + ".at")]);
   });
-  r.method(type, "add", {element}, type, [type](void* p, Args& a) {
+  pure_std_method(r, type, "add", {element}, type, [type](void* p, Args& a) {
     static_cast<List*>(p)->items.push_back(Codec::get(a[0])); return Value::object(type, p);
   });
-  r.method(type, "set", {"int", element}, type, [type](void* p, Args& a) {
+  pure_std_method(r, type, "set", {"int", element}, type, [type](void* p, Args& a) {
     auto& items = static_cast<List*>(p)->items;
     items[collection_index(a[0].i, items.size(), type + ".set")] = Codec::get(a[1]); return Value::object(type, p);
   });
-  r.method(type, "contains", {element}, "bool", [](void* p, Args& a) {
+  pure_std_method(r, type, "contains", {element}, "bool", [](void* p, Args& a) {
     const auto& items = static_cast<List*>(p)->items;
     return Value::boolean(std::find(items.begin(), items.end(), Codec::get(a[0])) != items.end());
   });
-  r.method(type, "index_of", {element}, "int", [](void* p, Args& a) {
+  pure_std_method(r, type, "index_of", {element}, "int", [](void* p, Args& a) {
     const auto& items = static_cast<List*>(p)->items; auto found = std::find(items.begin(), items.end(), Codec::get(a[0]));
     return Value::integer(found == items.end() ? -1 : int64_t(found - items.begin()));
   });
-  r.method(type, "clear", {}, type, [type](void* p, Args&) { static_cast<List*>(p)->items.clear(); return Value::object(type, p); });
+  pure_std_method(r, type, "clear", {}, type, [type](void* p, Args&) { static_cast<List*>(p)->items.clear(); return Value::object(type, p); });
 }
 } // namespace detail
 
@@ -158,59 +163,58 @@ inline Registry& register_collections(Registry& r, Collections& arena) {
   detail::register_collection_list<std::string>(r, "StrList", "string");
   detail::register_collection_list<int64_t>(r, "IntList", "int");
   detail::register_collection_list<double>(r, "FloatList", "float");
-  r.method("StrList", "join", {"string"}, "string", [](void* p, Args& a) {
+  pure_std_method(r, "StrList", "join", {"string"}, "string", [](void* p, Args& a) {
     std::string out; bool first = true;
     for (const auto& item : static_cast<StrList*>(p)->items) { if (!first) out += a[0].s; out += item; first = false; }
     return Value::string(std::move(out));
   });
-  r.function("str_list", {}, "StrList", [&arena](Args&) { return Value::object("StrList", arena.make_str_list()); });
-  r.function("int_list", {}, "IntList", [&arena](Args&) { return Value::object("IntList", arena.make_int_list()); });
-  r.function("float_list", {}, "FloatList", [&arena](Args&) { return Value::object("FloatList", arena.make_float_list()); });
-  r.function("str_map", {}, "StrMap", [&arena](Args&) { return Value::object("StrMap", arena.make_str_map()); });
-  r.function("str_split", {"string", "string"}, "StrList", [&arena](Args& a) {
+  pure_std_function(r, "str_list", {}, "StrList", [&arena](Args&) { return Value::object("StrList", arena.make_str_list()); });
+  pure_std_function(r, "int_list", {}, "IntList", [&arena](Args&) { return Value::object("IntList", arena.make_int_list()); });
+  pure_std_function(r, "float_list", {}, "FloatList", [&arena](Args&) { return Value::object("FloatList", arena.make_float_list()); });
+  pure_std_function(r, "str_map", {}, "StrMap", [&arena](Args&) { return Value::object("StrMap", arena.make_str_map()); });
+  pure_std_function(r, "str_split", {"string", "string"}, "StrList", [&arena](Args& a) {
     if (a[1].s.empty()) throw Error("str_split: separator must not be empty");
-    arena.reserve_object("StrList");
     std::vector<std::string> items; size_t at = 0, found;
     while ((found = a[0].s.find(a[1].s, at)) != std::string::npos) { items.push_back(a[0].s.substr(at, found - at)); at = found + a[1].s.size(); }
     items.push_back(a[0].s.substr(at)); return Value::object("StrList", arena.make_str_list(std::move(items)));
   });
-  r.method("StrMap", "len", {}, "int", [](void* p, Args&) { return Value::integer(int64_t(static_cast<StrMap*>(p)->active)); });
-  r.method("StrMap", "has", {"string"}, "bool", [](void* p, Args& a) {
+  pure_std_method(r, "StrMap", "len", {}, "int", [](void* p, Args&) { return Value::integer(int64_t(static_cast<StrMap*>(p)->active)); });
+  pure_std_method(r, "StrMap", "has", {"string"}, "bool", [](void* p, Args& a) {
     const auto& map = *static_cast<StrMap*>(p);
     return Value::boolean(map.index.find(a[0].s) != map.index.end());
   });
-  r.method("StrMap", "get", {"string"}, "string", [](void* p, Args& a) {
+  pure_std_method(r, "StrMap", "get", {"string"}, "string", [](void* p, Args& a) {
     const auto& map = *static_cast<StrMap*>(p); auto found = map.index.find(a[0].s);
     if (found != map.index.end()) return Value::string(map.items[found->second].second);
     throw Error("StrMap.get: missing key");
   });
-  r.method("StrMap", "get_or", {"string", "string"}, "string", [](void* p, Args& a) {
+  pure_std_method(r, "StrMap", "get_or", {"string", "string"}, "string", [](void* p, Args& a) {
     const auto& map = *static_cast<StrMap*>(p); auto found = map.index.find(a[0].s);
     if (found != map.index.end()) return Value::string(map.items[found->second].second);
     return Value::string(a[1].s);
   });
-  r.method("StrMap", "set", {"string", "string"}, "StrMap", [](void* p, Args& a) {
+  pure_std_method(r, "StrMap", "set", {"string", "string"}, "StrMap", [](void* p, Args& a) {
     static_cast<StrMap*>(p)->set(a[0].s, a[1].s);
     return Value::object("StrMap", p);
   });
-  r.method("StrMap", "key_at", {"int"}, "string", [](void* p, Args& a) {
+  pure_std_method(r, "StrMap", "key_at", {"int"}, "string", [](void* p, Args& a) {
     auto& map = *static_cast<StrMap*>(p);
     if (a[0].i < 0 || uint64_t(a[0].i) >= map.active) throw Error("StrMap.key_at: index out of range: " + std::to_string(a[0].i));
     return Value::string(map.items[map.select_rank(size_t(a[0].i))].first);
   });
-  r.method("StrMap", "remove", {"string"}, "bool", [](void* p, Args& a) {
+  pure_std_method(r, "StrMap", "remove", {"string"}, "bool", [](void* p, Args& a) {
     auto& map = *static_cast<StrMap*>(p); auto found = map.index.find(a[0].s);
     if (found == map.index.end()) return Value::boolean(false);
     const size_t pos = found->second; map.index.erase(found); map.remove_rank(pos); --map.active; return Value::boolean(true);
   });
-  r.method("StrMap", "clear", {}, "StrMap", [](void* p, Args&) { auto& map = *static_cast<StrMap*>(p); map.items.clear(); map.index.clear(); map.active = 0; map.fenwick.clear(); return Value::object("StrMap", p); });
-  r.method("StrMap", "keys", {}, "StrList", [&arena](void* p, Args&) {
+  pure_std_method(r, "StrMap", "clear", {}, "StrMap", [](void* p, Args&) { auto& map = *static_cast<StrMap*>(p); map.items.clear(); map.index.clear(); map.active = 0; map.fenwick.clear(); return Value::object("StrMap", p); });
+  pure_std_method(r, "StrMap", "keys", {}, "StrList", [&arena](void* p, Args&) {
     const auto& map = *static_cast<StrMap*>(p);
     std::vector<std::string> values; values.reserve(map.active);
     for (size_t i = 0; i < map.items.size(); ++i) if (map.live(i)) values.push_back(map.items[i].first);
     return Value::object("StrList", arena.make_str_list(std::move(values)));
   });
-  r.method("StrMap", "values", {}, "StrList", [&arena](void* p, Args&) {
+  pure_std_method(r, "StrMap", "values", {}, "StrList", [&arena](void* p, Args&) {
     const auto& map = *static_cast<StrMap*>(p);
     std::vector<std::string> values; values.reserve(map.active);
     for (size_t i = 0; i < map.items.size(); ++i) if (map.live(i)) values.push_back(map.items[i].second);

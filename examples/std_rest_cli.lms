@@ -1,0 +1,46 @@
+# Standard REST endpoint & stateless CLI interfaces (CliOption, CliCommand, RestGet, rest_config, rest_cli)
+
+program = _lmcode_ schema="../schema/lmsearch.dsl.json";
+
+@"--metric"
+fn opt_metric(x: RestExchange) -> void implements CliOption {
+    x.set("active_metric", x.query("metric"));
+}
+
+@"search/:topic"
+fn cmd_search(x: RestExchange) -> void implements CliCommand {
+    let topic = x.param("topic");
+    let m = onnx_embedder(1024, 8, 42).pooling(Pooling.MEAN).normalize(true);
+    let idx = flat_index(8, Metric.COSINE).embedder(m);
+    idx.add_doc(document(101, "faiss hnsw vector search engine"));
+    idx.add_doc(document(202, "onnx neural embedding model"));
+    let hits = idx.search_text(topic, 1);
+    x.json("{\"topic\":\"" + topic + "\",\"metric\":\"" + x.get("active_metric") + "\",\"top_id\":" + str(hits.at(0).id()) + "}");
+}
+
+@"/health/:component"
+fn get_health(x: RestExchange) -> void implements RestGet {
+    x.json("{\"component\":\"" + x.param("component") + "\",\"ok\":true}");
+}
+
+rest_config("service", "lmsearch-cli");
+
+let cli_out = rest_cli(str_list().add("--metric=COSINE").add("search").add("faiss"));
+let parsed = json_parse(cli_out);
+assert_true(parsed.get("topic").as_string() == "faiss", "CliCommand must capture :topic placeholder");
+assert_true(parsed.get("metric").as_string() == "COSINE", "CliOption must set active_metric in RestExchange state");
+assert_true(parsed.get("top_id").as_int() > 0, "CliCommand must execute FAISS search and return top_id");
+
+let health_out = rest_cli(str_list().add("health").add("index"));
+let health_json = json_parse(health_out);
+assert_true(health_json.get("component").as_string() == "index", "RestGet must dispatch via rest_cli and capture :component");
+assert_true(health_json.get("ok").as_bool(), "RestGet health check must return ok=true");
+
+report("std_rest_cli", "passed");
+end _lmcode_
+
+mkdir("build");
+bin = env("LMSEARCH_BIN", "./build/lmsearch");
+r = run_lmcode(program, {command: [bin, "--lmcode", "$DSLFILE"]});
+assert(r.ok, "examples/std_rest_cli.lms failed");
+println(json_stringify(r));

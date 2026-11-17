@@ -1,0 +1,259 @@
+{
+  "dsl.schema": 2,
+  "name": "lmcode_std_rest_v1",
+  "types": {
+    "RestExchange": {
+      "methods": {
+        "method": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "path": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "query": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "string"
+          }
+        ],
+        "has_query": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "param": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "string"
+          }
+        ],
+        "header": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "string"
+          }
+        ],
+        "has_header": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "body": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "status": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "void"
+          }
+        ],
+        "set_header": [
+          {
+            "params": [
+              "string",
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "send": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "json": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "get": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "string"
+          }
+        ],
+        "set": [
+          {
+            "params": [
+              "string",
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "increment": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "int"
+          }
+        ]
+      }
+    }
+  },
+  "functions": {
+    "rest_cli": [
+      {
+        "params": [
+          "StrList"
+        ],
+        "returns": "string"
+      }
+    ],
+    "rest_config": [
+      {
+        "params": [
+          "string",
+          "string"
+        ],
+        "returns": "void"
+      }
+    ],
+    "rest_route": [
+      {
+        "params": [
+          "string",
+          "string",
+          "string"
+        ],
+        "returns": "void"
+      }
+    ],
+    "rest_serve": [
+      {
+        "params": [],
+        "returns": "void"
+      }
+    ],
+    "rest_stop": [
+      {
+        "params": [],
+        "returns": "void"
+      }
+    ]
+  },
+  "interfaces": {
+    "CliCommand": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "CliOption": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestDelete": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestGet": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestHandler": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestHead": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestOptions": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestPatch": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestPost": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestPut": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    }
+  }
+}

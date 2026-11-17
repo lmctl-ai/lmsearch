@@ -17,6 +17,9 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <iomanip>
+#include <locale>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 
@@ -49,6 +52,23 @@ inline void number(double value, const std::string& path) {
   if (!std::isfinite(value)) invalid(path,"nonfinite");
   if (value == 0) return;
   if (std::trunc(value)==value && std::abs(value)>double(kSafeInteger)) invalid(path,"unsafe_integer");
+}
+inline std::string portable_float(double value) {
+  if (value == 0) return "0";
+  for (int precision = 1; precision <= std::numeric_limits<double>::max_digits10; ++precision) {
+    std::ostringstream out; out.imbue(std::locale::classic()); out << std::setprecision(precision) << value;
+    const std::string text = out.str(); double roundtrip = 0; std::istringstream in(text); in.imbue(std::locale::classic()); in >> roundtrip;
+    if (!in.fail() && std::isfinite(roundtrip) && roundtrip == value) return text;
+  }
+  throw Error("lmcode return: invalid JSON value at /: float conversion failed");
+}
+inline std::string float_json(double value) {
+  if (value == 0) return "0";
+#if defined(FORCE_PORTABLE_FLOAT_JSON) || (defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 130300) || (defined(__GNUC__) && defined(_WIN32) && !defined(__clang__) && __GNUC__ < 11)
+  return portable_float(value);
+#else
+  char b[64]; auto r=std::to_chars(b,b+sizeof b,value,std::chars_format::general); if(r.ec!=std::errc()) throw Error("lmcode return: invalid JSON value at /: float conversion failed"); return std::string(b,r.ptr);
+#endif
 }
 // Examine the mathematical decimal value before binary64 can round it. The
 // exponent bound below is derived from token length: exceeding it determines
@@ -144,6 +164,7 @@ inline JsonNode copy_value(const Value& v, const std::string& path="") {
     case Value::BOOL: n.kind=JsonNode::Kind::Bool;n.boolean=v.b;return n;
     case Value::STR: valid_utf8(v.s,path);n.kind=JsonNode::Kind::String;n.text=v.s;return n;
     case Value::VOID: n.kind=JsonNode::Kind::Null;return n;
+    case Value::DRY_NULL: if(!v.is_dry_null())invalid(path,"dry null");n.kind=JsonNode::Kind::Null;return n;
     case Value::OBJ: break;
   }
   if(!v.obj) invalid(path,"handle");
@@ -173,7 +194,7 @@ inline std::string encode(const JsonNode& n) {
   switch(n.kind) {
     case JsonNode::Kind::Null:return "null"; case JsonNode::Kind::Bool:return n.boolean?"true":"false";
     case JsonNode::Kind::Int:return std::to_string(n.integer);
-    case JsonNode::Kind::Float:{ double v=n.floating;if(v==0)v=0;char b[64];auto r=std::to_chars(b,b+sizeof b,v,std::chars_format::general);if(r.ec!=std::errc())throw Error("lmcode return: invalid JSON value at /: nonfinite");return std::string(b,r.ptr); }
+    case JsonNode::Kind::Float:{ number(n.floating,"/"); return float_json(n.floating); }
     case JsonNode::Kind::String:return json_detail::quoted(n.text);
     case JsonNode::Kind::Array:{std::string s="[";for(size_t i=0;i<n.array.size();++i){if(i)s+=',';s+=encode(n.array[i]);}return s+"]";}
     case JsonNode::Kind::Object:{std::string s="{";for(size_t i=0;i<n.object.size();++i){if(i)s+=',';s+=json_detail::quoted(n.object[i].key)+":"+encode(*n.object[i].value);}return s+"}";}

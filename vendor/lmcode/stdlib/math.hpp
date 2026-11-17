@@ -66,22 +66,22 @@ inline double math_sqrt(double x) { return std::sqrt(x); }
 
 inline Registry& register_math(Registry& r) {
   if (r.has_std()) return r;
-  r.function("math_abs", {"int"}, "int", [](Args& a) { return Value::integer(math_abs(a[0].i)); });
-  r.function("math_abs", {"float"}, "float", [](Args& a) { return Value::real(math_abs(a[0].f)); });
-  r.function("math_min", {"int", "int"}, "int", [](Args& a) { return Value::integer(math_min(a[0].i, a[1].i)); });
-  r.function("math_min", {"float", "float"}, "float", [](Args& a) { return Value::real(math_min(a[0].f, a[1].f)); });
-  r.function("math_max", {"int", "int"}, "int", [](Args& a) { return Value::integer(math_max(a[0].i, a[1].i)); });
-  r.function("math_max", {"float", "float"}, "float", [](Args& a) { return Value::real(math_max(a[0].f, a[1].f)); });
-  r.function("math_floor", {"int"}, "int", [](Args& a) { return Value::integer(math_floor(a[0].i)); });
-  r.function("math_floor", {"float"}, "float", [](Args& a) { return Value::real(math_floor(a[0].f)); });
-  r.function("math_ceil", {"int"}, "int", [](Args& a) { return Value::integer(math_ceil(a[0].i)); });
-  r.function("math_ceil", {"float"}, "float", [](Args& a) { return Value::real(math_ceil(a[0].f)); });
-  r.function("math_round", {"int"}, "int", [](Args& a) { return Value::integer(math_round(a[0].i)); });
-  r.function("math_round", {"float"}, "float", [](Args& a) { return Value::real(math_round(a[0].f)); });
-  r.function("math_pow", {"int", "int"}, "int", [](Args& a) { return Value::integer(math_pow(a[0].i, a[1].i)); });
-  r.function("math_pow", {"float", "float"}, "float", [](Args& a) { return Value::real(math_pow(a[0].f, a[1].f)); });
-  r.function("math_sqrt", {"int"}, "int", [](Args& a) { return Value::integer(math_sqrt(a[0].i)); });
-  r.function("math_sqrt", {"float"}, "float", [](Args& a) { return Value::real(math_sqrt(a[0].f)); });
+  pure_std_function(r, "math_abs", {"int"}, "int", [](Args& a) { return Value::integer(math_abs(a[0].i)); });
+  pure_std_function(r, "math_abs", {"float"}, "float", [](Args& a) { return Value::real(math_abs(a[0].f)); });
+  pure_std_function(r, "math_min", {"int", "int"}, "int", [](Args& a) { return Value::integer(math_min(a[0].i, a[1].i)); });
+  pure_std_function(r, "math_min", {"float", "float"}, "float", [](Args& a) { return Value::real(math_min(a[0].f, a[1].f)); });
+  pure_std_function(r, "math_max", {"int", "int"}, "int", [](Args& a) { return Value::integer(math_max(a[0].i, a[1].i)); });
+  pure_std_function(r, "math_max", {"float", "float"}, "float", [](Args& a) { return Value::real(math_max(a[0].f, a[1].f)); });
+  pure_std_function(r, "math_floor", {"int"}, "int", [](Args& a) { return Value::integer(math_floor(a[0].i)); });
+  pure_std_function(r, "math_floor", {"float"}, "float", [](Args& a) { return Value::real(math_floor(a[0].f)); });
+  pure_std_function(r, "math_ceil", {"int"}, "int", [](Args& a) { return Value::integer(math_ceil(a[0].i)); });
+  pure_std_function(r, "math_ceil", {"float"}, "float", [](Args& a) { return Value::real(math_ceil(a[0].f)); });
+  pure_std_function(r, "math_round", {"int"}, "int", [](Args& a) { return Value::integer(math_round(a[0].i)); });
+  pure_std_function(r, "math_round", {"float"}, "float", [](Args& a) { return Value::real(math_round(a[0].f)); });
+  pure_std_function(r, "math_pow", {"int", "int"}, "int", [](Args& a) { return Value::integer(math_pow(a[0].i, a[1].i)); });
+  pure_std_function(r, "math_pow", {"float", "float"}, "float", [](Args& a) { return Value::real(math_pow(a[0].f, a[1].f)); });
+  pure_std_function(r, "math_sqrt", {"int"}, "int", [](Args& a) { return Value::integer(math_sqrt(a[0].i)); });
+  pure_std_function(r, "math_sqrt", {"float"}, "float", [](Args& a) { return Value::real(math_sqrt(a[0].f)); });
   return r;
 }
 

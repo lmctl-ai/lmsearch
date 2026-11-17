@@ -64,6 +64,27 @@ fn prune_noise_files(doc: Document) -> bool implements IgnoreRule {
     return skip;
 }
 
+@"--top"
+fn opt_top(x: RestExchange) -> void implements CliOption {
+    x.set("top_k", x.query("top"));
+}
+
+@"query/:term"
+fn cmd_query(x: RestExchange) -> void implements CliCommand {
+    let term = x.param("term");
+    let m = onnx_embedder(512, 8, 7).pooling(Pooling.MEAN).normalize(true);
+    let idx = flat_index(8, Metric.COSINE).embedder(m);
+    idx.add_doc(document(1, "faiss hnsw vector search"));
+    idx.add_doc(document(2, "autofaiss quantization planner"));
+    let hits = idx.search_text(term, str_to_int(x.get("top_k")));
+    x.json("{\"term\":\"" + term + "\",\"hits\":" + str(hits.len()) + "}");
+}
+
+@"/info/:section"
+fn get_info(x: RestExchange) -> void implements RestGet {
+    x.json("{\"section\":\"" + x.param("section") + "\"}");
+}
+
 let model = onnx_embedder(2048, 12, 42)
     .pooling(Pooling.MEAN)
     .normalize(true)
@@ -179,6 +200,14 @@ assert_true(lazy_idx.last_from_cache(), "refine_view must read from memory cache
 assert_true(lazy_idx.last_newly_embedded() == 0, "refine_view must embed 0 new files");
 assert_true(refined_lazy.len() == 1, "refine_view must narrow cached hits to README.md");
 assert_true(refined_lazy.at(0).document().filename() == "README.md", "refine_view hit must be README.md");
+
+# 9. Standard REST & Stateless CLI interfaces (CliOption, CliCommand, RestGet, rest_config, rest_cli)
+rest_config("app", "lmsearch");
+let cli_res = json_parse(rest_cli(str_list().add("--top=1").add("query").add("faiss")));
+assert_true(cli_res.get("term").as_string() == "faiss", "CliCommand must capture :term parameter");
+assert_true(cli_res.get("hits").as_int() == 1, "CliOption --top=1 must control search top-k");
+let info_res = json_parse(rest_cli(str_list().add("info").add("onnx")));
+assert_true(info_res.get("section").as_string() == "onnx", "RestGet must dispatch via rest_cli");
 
 report("status", "all_assertions_passed");
 end _lmcode_

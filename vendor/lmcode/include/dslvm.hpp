@@ -23,7 +23,7 @@
 //   dslvm::Program::call(entry, context, registry, args, stats)   executes one entry with args stored into its parameter
 //                                        locals; returns the stack value at HALT (Value::none() for a void interface)
 //   dslvm::Program::RunStats             optional dispatch count for host measurements; pass a pointer to run(), never a limit
-//   dslvm::report_ok / report_error / report_app_failure   the standard one-line JSON result on stdout and the
+//   dslvm::InvocationResults / failure_frame               explicit one-envelope result framing and the
 //                                        exit-code convention 2 compile (lmscript) / 3 host (load or run) / 4 application
 //   dslvm::VERSION                       the bytecode format version this SDK reads (and nothing else: no backward compatibility)
 //   dslvm::sha256 / hex / read_file      helpers the hosts use for the schema binding and files
@@ -78,6 +78,8 @@ struct Error : std::runtime_error {
   std::string message;
   bool has_location = false;
   bool has_column = false;
+  bool has_invocation_dry = false;
+  bool invocation_dry = false;
   uint32_t line = 0;
   uint16_t column = 0;
   explicit Error(const std::string& m) : std::runtime_error(m), code("RUN_HOST"), message(m) {}   // a plain message is what host closures throw
@@ -134,8 +136,11 @@ inline std::string hex(const std::string& bytes) {
 }
 
 // ---- Values ----
+struct Value;
+class Registry;
+inline Value dry_dummy(const Registry&, const std::string&);
 struct Value {
-  enum Kind { VOID, INT, FLOAT, STR, BOOL, OBJ } kind = VOID;
+  enum Kind { VOID, INT, FLOAT, STR, BOOL, OBJ, DRY_NULL } kind = VOID;
   int64_t i = 0; double f = 0.0; std::string s; bool b = false; void* obj = nullptr; std::string type;  // type: schema type name of obj
   std::string context_name;
   static Value none() { return Value(); }
@@ -144,11 +149,20 @@ struct Value {
   static Value string(std::string v) { Value x; x.kind = STR; x.s = std::move(v); return x; }
   static Value boolean(bool v) { Value x; x.kind = BOOL; x.b = v; return x; }
   static Value object(const std::string& type, void* p) { Value x; x.kind = OBJ; x.obj = p; x.type = type; return x; }
-  const char* kind_name() const { static const char* n[] = {"void","int","float","string","bool","object"}; return n[kind]; }
+  bool is_dry_null() const { return kind == DRY_NULL && dry_null_provenance_; }
+  const char* kind_name() const { static const char* n[] = {"void","int","float","string","bool","object","dry null"}; return n[kind]; }
+ private:
+  bool dry_null_provenance_ = false;
+  static Value dry_null(const std::string& type) { Value x; x.kind = DRY_NULL; x.type = type; x.dry_null_provenance_ = true; return x; }
+  friend Value dry_dummy(const Registry&, const std::string&);
 };
 using Args = std::vector<Value>;
 using Function = std::function<Value(Args&)>;
 using Method = std::function<Value(void* self, Args&)>;
+struct DryFunction { Function callback; bool supplied = false; };
+struct DryMethod { Method callback; bool supplied = false; };
+inline DryFunction dry(Function callback) { return {std::move(callback), true}; }
+inline DryMethod dry(Method callback) { return {std::move(callback), true}; }
 
 struct CallSite {
   std::string file;
@@ -156,34 +170,17 @@ struct CallSite {
   int column = 0;
 };
 
-struct PlanEntry {
-  int64_t seq = 0;
-  std::string kind = "host_effect";
-  std::string function;
-  Args arguments;
-  std::string arguments_json;
-  int line = 0;
-  int column = 0;
-  std::string file;
-  bool simulated = true;
-  std::string detail_json;
-  bool budget_exceeded = false;
-};
-
-struct VmConfig {
-  uint64_t step_budget = 0;  // 0 = unlimited; max mutating host-effect steps in dry mode
-};
-
 // ---- Host registry: the implementation of the schema, declared with the schema's types ----
 struct Signature { std::vector<std::string> params; std::string returns; };
-struct FunctionEntry { Signature sig; Function fn; Function plan_fn; bool mutating = false; };
-struct MethodEntry { Signature sig; Method fn; Method plan_fn; bool mutating = false; };
+struct FunctionEntry { Signature sig; Function fn; Function dry_fn; };
+struct MethodEntry { Signature sig; Method fn; Method dry_fn; };
 inline std::string signature_text(const Signature& s) { std::string out = "("; for (size_t i = 0; i < s.params.size(); ++i) out += (i ? ", " : "") + s.params[i]; return out + ") -> " + s.returns; }
 
 namespace stdlib { struct Collections; struct StdRuntime; }
 enum class StdMode { Enabled, Disabled };
-class Registry;
 class ResultSink;
+class Program;
+class Context;
 inline Registry& register_std(Registry&);
 
 class Registry {
@@ -193,6 +190,7 @@ class Registry {
   explicit Registry(StdMode mode = StdMode::Enabled);
   bool has_std() const { return std_initialized_; }
   stdlib::Collections& std_collections() const;
+  stdlib::Collections& dry_collections() const;
   void set_std_output(std::ostream* sink);
   // Host-owned invocation sink; never reset by a per-region VM run.
   void set_result_sink(ResultSink* sink);
@@ -211,7 +209,7 @@ class Registry {
   // One active run per shared std runtime; separate registries own independent runtimes.
   class StdRunScope {
    public:
-    explicit StdRunScope(const Registry& r) : registry_(r.has_std() ? &r : nullptr) { if (registry_) registry_->begin_std_run(); }
+    explicit StdRunScope(const Registry& r) : registry_(r.std_runtime_ ? &r : nullptr) { if (registry_) registry_->begin_std_run(); }
     ~StdRunScope() { if (registry_) registry_->end_std_run(); }
     StdRunScope(const StdRunScope&) = delete;
     StdRunScope& operator=(const StdRunScope&) = delete;
@@ -219,36 +217,61 @@ class Registry {
     const Registry* registry_;
   };
   StdRunScope std_run_scope() const { return StdRunScope(*this); }
-  // Type names are the schema's: int, float, string, bool, void (returns only) or an object type name. The arity the loader
-  // checks is params.size(). Registering a name with the same parameter tuple twice is an error; distinct tuples are overloads.
+  // Type names are schema names; one optional dry slot keeps the normal signature and arguments.
   Registry& function(const std::string& name, std::vector<std::string> params, std::string returns, Function fn) {
-    Signature sig{std::move(params), std::move(returns)};
-    for (const auto& f : functions_) if (f.second.name == name && f.second.entry.sig.params == sig.params) throw Error("LOAD_UNBOUND", "registry: function '" + name + signature_text(sig) + "' is registered twice");
-    std::string key = "fn " + name + signature_text(sig);
-    functions_.emplace(std::move(key), NamedFunction{name, FunctionEntry{std::move(sig), std::move(fn), Function{}, false}});
-    return *this;
+    return function(name, std::move(params), std::move(returns), std::move(fn), DryFunction{});
   }
-  Registry& mutating_function(const std::string& name, std::vector<std::string> params, std::string returns, Function plan_fn, Function apply_fn) {
+  Registry& function(const std::string& name, std::vector<std::string> params, std::string returns, Function fn, DryFunction dry_slot) {
+    if (!fn) throw Error("LOAD_UNBOUND", "registry: function " + name + " callback is empty");
+    if (dry_slot.supplied && !dry_slot.callback) throw Error("LOAD_UNBOUND", "registry: dry function " + name + " callback is empty");
     Signature sig{std::move(params), std::move(returns)};
     for (const auto& f : functions_) if (f.second.name == name && f.second.entry.sig.params == sig.params) throw Error("LOAD_UNBOUND", "registry: function '" + name + signature_text(sig) + "' is registered twice");
     std::string key = "fn " + name + signature_text(sig);
-    functions_.emplace(std::move(key), NamedFunction{name, FunctionEntry{std::move(sig), std::move(apply_fn), std::move(plan_fn), true}});
+    functions_.emplace(std::move(key), NamedFunction{name, FunctionEntry{std::move(sig), std::move(fn), std::move(dry_slot.callback)}});
     return *this;
   }
   Registry& method(const std::string& type, const std::string& name, std::vector<std::string> params, std::string returns, Method fn) {
+    return method(type, name, std::move(params), std::move(returns), std::move(fn), DryMethod{});
+  }
+  Registry& method(const std::string& type, const std::string& name, std::vector<std::string> params, std::string returns, Method fn, DryMethod dry_slot) {
+    if (!fn) throw Error("LOAD_UNBOUND", "registry: method " + type + "." + name + " callback is empty");
+    if (dry_slot.supplied && !dry_slot.callback) throw Error("LOAD_UNBOUND", "registry: dry method " + type + "." + name + " callback is empty");
     Signature sig{std::move(params), std::move(returns)};
     for (const auto& m : methods_) if (m.second.type == type && m.second.name == name && m.second.entry.sig.params == sig.params) throw Error("LOAD_UNBOUND", "registry: method '" + type + "." + name + signature_text(sig) + "' is registered twice");
     std::string key = "method " + type + "." + name + signature_text(sig);
-    methods_.emplace(std::move(key), NamedMethod{type, name, MethodEntry{std::move(sig), std::move(fn), Method{}, false}});
+    methods_.emplace(std::move(key), NamedMethod{type, name, MethodEntry{std::move(sig), std::move(fn), std::move(dry_slot.callback)}});
     return *this;
   }
-  Registry& mutating_method(const std::string& type, const std::string& name, std::vector<std::string> params, std::string returns, Method plan_fn, Method apply_fn) {
+  Registry& override_std_function(const std::string& name, std::vector<std::string> params, std::string returns, Function fn, DryFunction dry_slot) {
     Signature sig{std::move(params), std::move(returns)};
-    for (const auto& m : methods_) if (m.second.type == type && m.second.name == name && m.second.entry.sig.params == sig.params) throw Error("LOAD_UNBOUND", "registry: method '" + type + "." + name + signature_text(sig) + "' is registered twice");
-    std::string key = "method " + type + "." + name + signature_text(sig);
-    methods_.emplace(std::move(key), NamedMethod{type, name, MethodEntry{std::move(sig), std::move(apply_fn), std::move(plan_fn), true}});
-    return *this;
+    std::string key = "fn " + name + signature_text(sig);
+    auto it = functions_.find(key);
+    if (it != functions_.end() && std::binary_search(std_signatures_.begin(), std_signatures_.end(), key)) {
+      it->second.entry.fn = std::move(fn);
+      it->second.entry.dry_fn = std::move(dry_slot.callback);
+      return *this;
+    }
+    return function(name, std::move(sig.params), std::move(sig.returns), std::move(fn), std::move(dry_slot));
   }
+  Registry& override_std_method(const std::string& type, const std::string& name, std::vector<std::string> params, std::string returns, Method fn, DryMethod dry_slot) {
+    Signature sig{std::move(params), std::move(returns)};
+    std::string key = "method " + type + "." + name + signature_text(sig);
+    auto it = methods_.find(key);
+    if (it != methods_.end() && std::binary_search(std_signatures_.begin(), std_signatures_.end(), key)) {
+      it->second.entry.fn = std::move(fn);
+      it->second.entry.dry_fn = std::move(dry_slot.callback);
+      return *this;
+    }
+    return method(type, name, std::move(sig.params), std::move(sig.returns), std::move(fn), std::move(dry_slot));
+  }
+  void set_rest_hooks(std::shared_ptr<void> controller,
+                      std::function<bool(const Program&, const Context&, const Registry&)> before_run,
+                      std::function<void()> after_run) {
+    rest_controller_ = std::move(controller);
+    before_body_run_ = std::move(before_run);
+    after_body_run_ = std::move(after_run);
+  }
+  const std::shared_ptr<stdlib::StdRuntime>& std_runtime() const { return std_runtime_; }
   Registry& context(const std::string& name, const std::string& type) {
     if (!context_.emplace(name, type).second) throw Error("LOAD_UNBOUND", "registry: context '" + name + "' is declared twice");
     return *this;
@@ -257,23 +280,6 @@ class Registry {
     for (const auto& c : context_) if (c.second == type) return c.first;
     return "";
   }
-  void record_plan_detail(std::string detail_json, bool budget_exceeded = false) const {
-    has_pending_plan_detail_ = true;
-    pending_plan_detail_ = std::move(detail_json);
-    pending_budget_exceeded_ = budget_exceeded;
-  }
-  void clear_pending_plan_detail() const {
-    has_pending_plan_detail_ = false;
-    pending_plan_detail_.clear();
-    pending_budget_exceeded_ = false;
-  }
-  bool has_pending_plan_detail() const { return has_pending_plan_detail_; }
-  std::string take_pending_plan_detail(bool& budget_exceeded) const {
-    budget_exceeded = pending_budget_exceeded_;
-    has_pending_plan_detail_ = false;
-    pending_budget_exceeded_ = false;
-    return std::move(pending_plan_detail_);
-  }
   // Canonical strings, sorted: exactly what `lmscript --lmcode-signatures SCHEMA` prints for the schema this registry implements.
   std::vector<std::string> signatures() const {
     std::vector<std::string> out;
@@ -281,6 +287,12 @@ class Registry {
     for (auto& f : functions_) out.push_back(f.first);
     for (auto& m : methods_) out.push_back(m.first);
     std::sort(out.begin(), out.end()); return out;
+  }
+  // Only SDK-owned sink conversion accepts dry null; host callbacks require live values.
+  bool is_result_conversion(const std::string& name, const FunctionEntry* entry) const {
+    if (name != "lmcode_return_set" && name != "lmcode_return_put") return false;
+    const auto canonical = "fn " + name + signature_text(entry->sig);
+    return std::binary_search(std_signatures_.begin(), std_signatures_.end(), canonical);
   }
   // Name-only lookup is retained for host introspection; overloaded names are intentionally ambiguous.
   const FunctionEntry* find_function(const std::string& name) const { const FunctionEntry* found = nullptr; for (auto& f : functions_) if (f.second.name == name) { if (found) return nullptr; found = &f.second.entry; } return found; }
@@ -299,29 +311,43 @@ class Registry {
     std::vector<std::string> have; for (auto& m : methods_) if (m.second.type + "." + m.second.name == name) have.push_back(m.first); std::sort(have.begin(), have.end()); std::string out; for (const auto& s : have) out += (out.empty() ? "" : ", ") + s; return out;
   }
  private:
+  friend class Program;
   friend Registry& register_std(Registry&);
   void begin_std_run() const;
   void end_std_run() const noexcept;
   bool std_initialized_ = false;
   std::ostream* std_output_ = &std::cout;
-  mutable bool has_pending_plan_detail_ = false;
-  mutable std::string pending_plan_detail_;
-  mutable bool pending_budget_exceeded_ = false;
   std::vector<std::string> std_signatures_;
   std::shared_ptr<stdlib::StdRuntime> std_runtime_;
+  std::shared_ptr<void> rest_controller_;
+  std::function<bool(const Program&, const Context&, const Registry&)> before_body_run_;
+  std::function<void()> after_body_run_;
   std::map<std::string, NamedFunction> functions_;
   std::map<std::string, NamedMethod> methods_;
   std::map<std::string, std::string> context_;
 };
 
+inline Registry& pure_std_function(Registry& r, const std::string& name, std::vector<std::string> params, std::string returns, Function callback) {
+  Function preview = callback;
+  return r.function(name, std::move(params), std::move(returns), std::move(callback), dry(std::move(preview)));
+}
+inline Registry& pure_std_method(Registry& r, const std::string& type, const std::string& name, std::vector<std::string> params, std::string returns, Method callback) {
+  Method preview = callback;
+  return r.method(type, name, std::move(params), std::move(returns), std::move(callback), dry(std::move(preview)));
+}
+inline Registry& read_std_function(Registry& r, const std::string& name, std::vector<std::string> params, std::string returns, Function callback) {
+  Function preview = callback;
+  return r.function(name, std::move(params), std::move(returns), std::move(callback), dry(std::move(preview)));
+}
+
 inline std::string json_escape(const std::string& s) {
   std::string out = "\"";
-  for (unsigned char c : s) { switch (c) { case '"': out += "\\\""; break; case '\\': out += "\\\\"; break; case '\n': out += "\\n"; break; case '\r': out += "\\r"; break; case '\t': out += "\\t"; break; default: if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\u%04x", c); out += b; } else out += char(c); } }
+  for (unsigned char c : s) { switch (c) { case '"': out += "\\\""; break; case '\\': out += "\\\\"; break; case '\b': out += "\\b"; break; case '\f': out += "\\f"; break; case '\n': out += "\\n"; break; case '\r': out += "\\r"; break; case '\t': out += "\\t"; break; default: if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\u%04x", c); out += b; } else out += char(c); } }
   return out + "\"";
 }
 inline std::string value_to_json(const Value& v) {
   switch (v.kind) {
-    case Value::VOID: return "null";
+    case Value::VOID: case Value::DRY_NULL: return "null";
     case Value::INT: return std::to_string(v.i);
     case Value::FLOAT: {
       if (!std::isfinite(v.f)) return "null";
@@ -344,18 +370,6 @@ inline std::string args_to_json(const Args& args) {
   out.push_back(']');
   return out;
 }
-// ---- The standard result line: exactly one JSON line on stdout; the return value is the process exit code. ----
-// `result_json` must already be JSON text ("null", "42", json_escape(text), an object...).
-inline int report_ok(const std::string& result_json = "null") { std::cout << "{\"ok\": true, \"result\": " << result_json << "}" << std::endl; return 0; }
-// phase is "load" or "run" (compile failures are lmscript's, exit 2); exit 4 for APP_FAIL, else 3.
-inline int report_error(const std::string& phase, const Error& e) {
-  std::cout << "{\"ok\": false, \"phase\": " << json_escape(phase) << ", \"code\": " << json_escape(e.code) << ", \"message\": " << json_escape(e.what());
-  if (e.has_location) { std::cout << ", \"line\": " << e.line; if (e.has_column) std::cout << ", \"column\": " << e.column; }
-  std::cout << "}" << std::endl;
-  return e.code == "APP_FAIL" ? 4 : 3;
-}
-inline int report_app_failure(const std::string& message) { return report_error("app", Error("APP_FAIL", message)); }
-
 // ---- Per-run context: the host's live objects, by declared name ----
 class Context {
  public:
@@ -365,27 +379,12 @@ class Context {
   bool dry() const { return dry_; }
   void set_file(std::string file) { file_ = std::move(file); call_site_.file = file_; }
   const std::string& file() const { return file_; }
-  void set_config(const VmConfig& cfg) { config_ = cfg; }
-  const VmConfig& config() const { return config_; }
-  void set_step_budget(uint64_t budget) { config_.step_budget = budget; }
-  uint64_t step_budget() const { return config_.step_budget; }
-  void set_dry_loop_limit(int64_t limit) { config_.step_budget = limit > 0 ? static_cast<uint64_t>(limit) : 0; }
-  int64_t dry_loop_limit() const { return static_cast<int64_t>(config_.step_budget); }
-  const std::vector<PlanEntry>& plan_entries() const { return plan_entries_; }
-  std::vector<PlanEntry>& plan_entries() { return plan_entries_; }
-  void clear_plan_entries() { plan_entries_.clear(); truncated_ = false; stop_reason_.clear(); }
-  bool truncated() const { return truncated_; }
-  const std::string& stop_reason() const { return stop_reason_; }
   const CallSite& call_site() const { return call_site_; }
  private:
   friend class Program;
   std::map<std::string, void*> objects_;
   bool dry_ = false;
   std::string file_;
-  VmConfig config_;
-  mutable std::vector<PlanEntry> plan_entries_;
-  mutable bool truncated_ = false;
-  mutable std::string stop_reason_;
   mutable CallSite call_site_;
 };
 
@@ -569,8 +568,10 @@ class Program {
 
   // Executes the chunk once. The host's objects come from ctx (declared names only).
   void run(const Context& ctx, const Registry& reg, RunStats* stats = nullptr) const {
-    if (ctx.dry() && ctx.truncated_) return;
+    const Registry& active_reg = bound_registry_ ? *bound_registry_ : reg;
+    const bool auto_rest = !ctx.dry() && active_reg.before_body_run_ && active_reg.before_body_run_(*this, ctx, active_reg);
     execute(code_, lines_, loops_, max_stack_, std::vector<Value>(locals_.size()), false, ctx, reg, stats);
+    if (auto_rest && active_reg.after_body_run_) active_reg.after_body_run_();
   }
 
   // The rule entries, in source order.
@@ -583,7 +584,8 @@ class Program {
     if (entry >= entries_.size()) throw Error("RUN_HOST", "call entry index " + std::to_string(entry) + " out of range (" + std::to_string(entries_.size()) + " entries)");
     const EntryRegion& e = entries_[entry];
     if (args.size() != e.nparams) throw Error("RUN_HOST", "call entry '" + e.meta.name + "' expects " + std::to_string(e.nparams) + " argument(s); found " + std::to_string(args.size()));
-    if (ctx.dry() && ctx.truncated_) return Value::none();
+    if (std::any_of(args.begin(), args.end(), [](const Value& value) { return value.kind == Value::DRY_NULL; }))
+      throw Error("RUN_HOST", "invalid dry null provenance in entry arguments");
     std::vector<Value> locals(e.locals.size());
     for (size_t i = 0; i < args.size(); ++i) locals[i] = std::move(args[i]);
     return execute(e.code, e.lines, e.loops, e.max_stack, std::move(locals), e.meta.returns != "void", ctx, reg, stats);
@@ -630,31 +632,19 @@ class Program {
       ctx.call_site_.line = ln ? static_cast<int>(ln->line) : 0;
       ctx.call_site_.column = ln ? static_cast<int>(ln->column) : 0;
     };
-    auto record_plan_entry = [&](const std::string& fn_label, const Args& args, const Value& result) {
-      PlanEntry entry;
-      entry.seq = static_cast<int64_t>(ctx.plan_entries_.size() + 1);
-      entry.kind = "host_effect";
-      entry.function = fn_label;
-      entry.arguments = args;
-      entry.arguments_json = args_to_json(args);
-      entry.line = ctx.call_site_.line;
-      entry.column = ctx.call_site_.column;
-      entry.file = ctx.file_;
-      entry.simulated = true;
-      if (reg.has_pending_plan_detail()) {
-        entry.detail_json = reg.take_pending_plan_detail(entry.budget_exceeded);
-      } else if (result.kind == Value::OBJ) {
-        if (const auto* jm = reg.method_by_signature("method " + result.type + ".json() -> string")) {
-          Args empty;
-          Value jv = jm->fn(result.obj, empty);
-          if (jv.kind == Value::STR) entry.detail_json = std::move(jv.s);
-        }
-        if (entry.detail_json.find("\"budget_exceeded\":true") != std::string::npos ||
-            entry.detail_json.find("\"budget_exceeded\": true") != std::string::npos) {
-          entry.budget_exceeded = true;
-        }
-      }
-      ctx.plan_entries_.push_back(std::move(entry));
+    auto validate_dry_result = [&](const Value& value, const std::string& declared) {
+      if (value.is_dry_null() && value.type == declared) return;
+      const char* expected = declared == "void" ? "void" : declared == "bool" ? "bool" :
+          declared == "int" || declared == "integer" || declared == "int64" ? "int" :
+          declared == "float" || declared == "double" || declared == "number" ? "float" :
+          declared == "string" ? "string" : "object";
+      const bool matches = std::string(expected) == "void" ? value.kind == Value::VOID :
+          std::string(expected) == "bool" ? value.kind == Value::BOOL :
+          std::string(expected) == "int" ? value.kind == Value::INT :
+          std::string(expected) == "float" ? value.kind == Value::FLOAT :
+          std::string(expected) == "string" ? value.kind == Value::STR :
+          value.kind == Value::OBJ && value.type == declared && value.obj;
+      if (!matches) throw Error("RUN_HOST", "dry callback for " + declared + " returned " + value.kind_name());
     };
     while (true) {
       const size_t fault_pc = r.pos();
@@ -684,43 +674,31 @@ class Program {
           const Import& imp = imports_[r.u16()]; uint8_t argc = r.u8();
           Args args(argc); for (int i = argc - 1; i >= 0; --i) args[i] = pop();
           update_call_site(fault_pc);
-          if (imp.fn->mutating && ctx.dry()) {
-            if (ctx.config_.step_budget > 0 && ctx.plan_entries_.size() >= ctx.config_.step_budget) {
-              ctx.truncated_ = true;
-              ctx.stop_reason_ = "dry loop limit";
-              return Value::none();
-            }
-            reg.clear_pending_plan_detail();
-            const Function& target_fn = imp.fn->plan_fn ? imp.fn->plan_fn : imp.fn->fn;
-            Value result = target_fn(args);
-            record_plan_entry(imp.name, args, result);
-            if (result.kind != Value::VOID) push(std::move(result));
-          } else {
-            Value result = imp.fn->fn(args);
-            if (result.kind != Value::VOID) push(std::move(result));
-          }
+          if ((!ctx.dry() || imp.fn->dry_fn) && !(ctx.dry() && reg.is_result_conversion(imp.name, imp.fn)) &&
+              std::any_of(args.begin(), args.end(), [](const Value& value) { return value.kind == Value::DRY_NULL; }))
+            throw Error("RUN_HOST", "dry null cannot be passed to a host callback");
+          Value result = ctx.dry() ? (imp.fn->dry_fn ? imp.fn->dry_fn(args) : dry_dummy(reg, imp.fn->sig.returns)) : imp.fn->fn(args);
+          if (ctx.dry()) validate_dry_result(result, imp.fn->sig.returns);
+          if (result.kind != Value::VOID) push(std::move(result));
           break;
         }
         case CALL_METHOD: {
           const Import& imp = imports_[r.u16()]; uint8_t argc = r.u8();
           Args args(argc); for (int i = argc - 1; i >= 0; --i) args[i] = pop();
           Value self = pop();
-          if (self.kind != Value::OBJ || self.type != imp.type) throw Error("RUN_ERROR", "method " + imp.type + "." + imp.name + " called on a " + (self.kind == Value::OBJ ? self.type : std::string(self.kind_name())));
           update_call_site(fault_pc);
-          if (imp.method->mutating && ctx.dry()) {
-            if (ctx.config_.step_budget > 0 && ctx.plan_entries_.size() >= ctx.config_.step_budget) {
-              ctx.truncated_ = true;
-              ctx.stop_reason_ = "dry loop limit";
-              return Value::none();
-            }
-            reg.clear_pending_plan_detail();
-            const Method& target_fn = imp.method->plan_fn ? imp.method->plan_fn : imp.method->fn;
-            Value result = target_fn(self.obj, args);
-            std::string receiver = !self.context_name.empty() ? self.context_name : reg.context_name_for_type(imp.type);
-            record_plan_entry((receiver.empty() ? imp.type : receiver) + "." + imp.name, args, result);
+          if (self.kind == Value::DRY_NULL && (!ctx.dry() || !self.is_dry_null()))
+            throw Error("RUN_HOST", "invalid dry null provenance in method receiver");
+          if (ctx.dry() && !imp.method->dry_fn) {
+            Value result = dry_dummy(reg, imp.method->sig.returns);
             if (result.kind != Value::VOID) push(std::move(result));
           } else {
-            Value result = imp.method->fn(self.obj, args);
+            if (std::any_of(args.begin(), args.end(), [](const Value& value) { return value.kind == Value::DRY_NULL; }))
+              throw Error("RUN_HOST", "dry null cannot be passed to a host callback");
+            if (self.is_dry_null()) throw Error("RUN_HOST", "method " + imp.type + "." + imp.name + " requires a concrete receiver after dry null");
+            if (self.kind != Value::OBJ || self.type != imp.type) throw Error("RUN_ERROR", "method " + imp.type + "." + imp.name + " called on a " + (self.kind == Value::OBJ ? self.type : std::string(self.kind_name())));
+            Value result = ctx.dry() ? imp.method->dry_fn(self.obj, args) : imp.method->fn(self.obj, args);
+            if (ctx.dry()) validate_dry_result(result, imp.method->sig.returns);
             if (result.kind != Value::VOID) push(std::move(result));
           }
           break;
@@ -728,7 +706,7 @@ class Program {
         case EQ: case NE: {
           Value b = pop(), a = pop();
           if (a.kind != b.kind) throw Error("RUN_ERROR", std::string("cannot compare ") + a.kind_name() + " with " + b.kind_name());
-          bool eq = a.kind == Value::INT ? a.i == b.i : a.kind == Value::FLOAT ? a.f == b.f : a.kind == Value::STR ? a.s == b.s : a.kind == Value::BOOL ? a.b == b.b : a.obj == b.obj;
+          bool eq = a.kind == Value::INT ? a.i == b.i : a.kind == Value::FLOAT ? a.f == b.f : a.kind == Value::STR ? a.s == b.s : a.kind == Value::BOOL ? a.b == b.b : a.kind == Value::DRY_NULL ? a.type == b.type : a.obj == b.obj;
           push(Value::boolean(op == EQ ? eq : !eq)); break;
         }
         case ADD_I: case SUB_I: case MUL_I: case DIV_I: case MOD_I: case LT_I: case LE_I: case GT_I: case GE_I: {
@@ -847,6 +825,16 @@ class Program {
           return Value::none();
         default: throw Error("RUN_ERROR", "unknown opcode " + std::to_string(op));
         }
+      } catch (const std::bad_alloc&) {
+        Error e("RUN_HOST", "allocation failed");
+        const Line* line = line_of(lines, fault_pc);
+        if (line) e.locate(line->line, line->column);
+        throw e;
+      } catch (const std::length_error&) {
+        Error e("RUN_HOST", "allocation exceeds platform capacity");
+        const Line* line = line_of(lines, fault_pc);
+        if (line) e.locate(line->line, line->column);
+        throw e;
       } catch (Error& e) {
         const Line* line = line_of(lines, fault_pc);
         if (line) e.locate(line->line, line->column);

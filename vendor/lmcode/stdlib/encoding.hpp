@@ -119,10 +119,10 @@ inline std::string str_hex_decode(const std::string& input) {
 
 inline Registry& register_encoding(Registry& r) {
   if (r.has_std()) return r;
-  r.function("str_base64_encode", {"string"}, "string", [](Args& a) { return Value::string(str_base64_encode(a[0].s)); });
-  r.function("str_base64_decode", {"string"}, "string", [](Args& a) { return Value::string(str_base64_decode(a[0].s)); });
-  r.function("str_hex_encode", {"string"}, "string", [](Args& a) { return Value::string(str_hex_encode(a[0].s)); });
-  r.function("str_hex_decode", {"string"}, "string", [](Args& a) { return Value::string(str_hex_decode(a[0].s)); });
+  pure_std_function(r, "str_base64_encode", {"string"}, "string", [](Args& a) { return Value::string(str_base64_encode(a[0].s)); });
+  pure_std_function(r, "str_base64_decode", {"string"}, "string", [](Args& a) { return Value::string(str_base64_decode(a[0].s)); });
+  pure_std_function(r, "str_hex_encode", {"string"}, "string", [](Args& a) { return Value::string(str_hex_encode(a[0].s)); });
+  pure_std_function(r, "str_hex_decode", {"string"}, "string", [](Args& a) { return Value::string(str_hex_decode(a[0].s)); });
   return r;
 }
 

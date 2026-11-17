@@ -113,36 +113,165 @@
       }
     ],
     "lmcode_return_null": [
-      {"params": [], "returns": "void"}
+      {
+        "params": [],
+        "returns": "void"
+      }
     ],
     "lmcode_return_put": [
-      {"params": ["string", "bool"], "returns": "void"},
-      {"params": ["string", "float"], "returns": "void"},
-      {"params": ["string", "FloatList"], "returns": "void"},
-      {"params": ["string", "FloatMap"], "returns": "void"},
-      {"params": ["string", "int"], "returns": "void"},
-      {"params": ["string", "IntList"], "returns": "void"},
-      {"params": ["string", "IntMap"], "returns": "void"},
-      {"params": ["string", "Json"], "returns": "void"},
-      {"params": ["string", "StrList"], "returns": "void"},
-      {"params": ["string", "StrMap"], "returns": "void"},
-      {"params": ["string", "string"], "returns": "void"}
+      {
+        "params": [
+          "string",
+          "bool"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "float"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "FloatList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "FloatMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "int"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "IntList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "IntMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "Json"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "StrList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "StrMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string",
+          "string"
+        ],
+        "returns": "void"
+      }
     ],
     "lmcode_return_put_null": [
-      {"params": ["string"], "returns": "void"}
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "void"
+      }
     ],
     "lmcode_return_set": [
-      {"params": ["bool"], "returns": "void"},
-      {"params": ["float"], "returns": "void"},
-      {"params": ["FloatList"], "returns": "void"},
-      {"params": ["FloatMap"], "returns": "void"},
-      {"params": ["int"], "returns": "void"},
-      {"params": ["IntList"], "returns": "void"},
-      {"params": ["IntMap"], "returns": "void"},
-      {"params": ["Json"], "returns": "void"},
-      {"params": ["StrList"], "returns": "void"},
-      {"params": ["StrMap"], "returns": "void"},
-      {"params": ["string"], "returns": "void"}
+      {
+        "params": [
+          "bool"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "float"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "FloatList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "FloatMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "int"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "IntList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "IntMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "Json"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "StrList"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "StrMap"
+        ],
+        "returns": "void"
+      },
+      {
+        "params": [
+          "string"
+        ],
+        "returns": "void"
+      }
     ],
     "math_abs": [
       {
@@ -478,6 +607,45 @@
           "Json"
         ],
         "returns": "string"
+      }
+    ],
+    "rest_cli": [
+      {
+        "params": [
+          "StrList"
+        ],
+        "returns": "string"
+      }
+    ],
+    "rest_config": [
+      {
+        "params": [
+          "string",
+          "string"
+        ],
+        "returns": "void"
+      }
+    ],
+    "rest_route": [
+      {
+        "params": [
+          "string",
+          "string",
+          "string"
+        ],
+        "returns": "void"
+      }
+    ],
+    "rest_serve": [
+      {
+        "params": [],
+        "returns": "void"
+      }
+    ],
+    "rest_stop": [
+      {
+        "params": [],
+        "returns": "void"
       }
     ]
   },
@@ -1399,6 +1567,218 @@
           }
         ]
       }
+    },
+    "RestExchange": {
+      "methods": {
+        "method": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "path": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "query": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "string"
+          }
+        ],
+        "has_query": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "param": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "string"
+          }
+        ],
+        "header": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "string"
+          }
+        ],
+        "has_header": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "bool"
+          }
+        ],
+        "body": [
+          {
+            "params": [],
+            "returns": "string"
+          }
+        ],
+        "status": [
+          {
+            "params": [
+              "int"
+            ],
+            "returns": "void"
+          }
+        ],
+        "set_header": [
+          {
+            "params": [
+              "string",
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "send": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "json": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "get": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "string"
+          }
+        ],
+        "set": [
+          {
+            "params": [
+              "string",
+              "string"
+            ],
+            "returns": "void"
+          }
+        ],
+        "increment": [
+          {
+            "params": [
+              "string"
+            ],
+            "returns": "int"
+          }
+        ]
+      }
+    }
+  },
+  "interfaces": {
+    "CliCommand": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "CliOption": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestDelete": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestGet": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestHandler": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestHead": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestOptions": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestPatch": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestPost": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
+    },
+    "RestPut": {
+      "params": [
+        {
+          "name": "exchange",
+          "type": "RestExchange"
+        }
+      ],
+      "returns": "void"
     }
   }
 }

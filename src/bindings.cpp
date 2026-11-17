@@ -205,6 +205,8 @@ void Host::bind_all(dslvm::Registry& reg, bool callback_mode) {
         dslvm::stdlib::register_file(reg, colls);
         dslvm::stdlib::register_containers(reg, colls);
         dslvm::stdlib::register_json(reg, colls);
+        dslvm::stdlib::register_results(reg, cb_result_sink);
+        dslvm::stdlib::rest::register_rest(reg);
     }
     dslvm::stdlib::register_testing(reg);
 
