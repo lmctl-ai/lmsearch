@@ -1,5 +1,7 @@
 # lmsearch
 
+Documentation: [Quick reference](https://www.lmctl.com/tools/lmsearch/) · [LLM skill](https://www.lmctl.com/tools/lmsearch/skill.html) · [Guide](https://www.lmctl.com/tools/lmsearch/guide.html) · [Reference](https://www.lmctl.com/tools/lmsearch/reference.html)
+
 `lmsearch` is a native C++ vector & neural search CLI that integrates and extends **ONNX** (`onnx/onnx`), **FAISS** (`facebookresearch/faiss`), and **AutoFaiss** (`criteo/autofaiss`) with **`lmcode`** (`_lmcode_` / DSLB v6) as its primary extension and programmable rule mechanism.
 
 ## Architecture Overview
